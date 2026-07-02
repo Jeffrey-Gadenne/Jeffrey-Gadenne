@@ -15,10 +15,25 @@ cd device-diagnostics
 az login
 az webapp up --name <your-app-name> --runtime "NODE:22-lts" --sku B1 --location australiaeast
 
-# Set your API key (never commit it)
+# Set your API key and session settings (never commit these)
 az webapp config appsettings set --name <your-app-name> --resource-group <rg-created-above> \
-  --settings ANTHROPIC_API_KEY=sk-ant-...
+  --settings ANTHROPIC_API_KEY=sk-ant-... \
+             SESSION_SECRET=$(openssl rand -hex 32) \
+             NODE_ENV=production
 ```
+
+Then create your login account(s). Accounts live in `users.json` on the server, so run this in the App Service console (Portal → your app → **SSH** or **Console**):
+
+```bash
+cd /home/site/wwwroot
+node manage-users.js add you@example.com yourpassword
+```
+
+> Alternatively set `USERS_FILE=/home/data/users.json` as an app setting first so accounts survive redeploys, and create the account there.
+
+### Auto-deploy from GitHub (optional, no credentials shared)
+
+A workflow at `.github/workflows/deploy-device-diagnostics.yml` deploys automatically on every push to `main`. One-time setup: in the Azure Portal download your app's **publish profile**, add it as a repo secret named `AZURE_WEBAPP_PUBLISH_PROFILE`, and set your app name in the workflow file.
 
 Your app is then live at `https://<your-app-name>.azurewebsites.net`. Redeploy after changes with `az webapp up` again from the same folder.
 
@@ -62,4 +77,4 @@ It then launches full-screen with its own icon like a native app. The **📸 Tak
 
 ## Security note
 
-The API endpoints are open on whatever host you deploy to — anyone with the URL can spend your Anthropic credits. For personal use, keep the URL private, or ask for basic auth / an access code to be added before sharing it more widely.
+The analysis endpoints require sign-in, so only accounts you create with `manage-users.js` can spend your Anthropic credits. Still: use strong passwords, keep `SESSION_SECRET` secret, and set `NODE_ENV=production` so session cookies are HTTPS-only. Never enable `ALLOW_ANONYMOUS` on a public host.

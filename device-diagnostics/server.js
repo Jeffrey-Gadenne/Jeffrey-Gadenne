@@ -1,7 +1,11 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
+import crypto from "crypto";
 import { fileURLToPath } from "url";
 import Anthropic from "@anthropic-ai/sdk";
+import cookieSession from "cookie-session";
+import bcrypt from "bcryptjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -9,9 +13,66 @@ const client = new Anthropic();
 
 const MODEL = "claude-opus-4-8";
 const MAX_IMAGES = 12;
+const USERS_FILE = process.env.USERS_FILE || path.join(here, "users.json");
+const ALLOW_ANONYMOUS = process.env.ALLOW_ANONYMOUS === "true";
 
+app.set("trust proxy", 1); // Azure App Service / reverse proxies terminate TLS
 app.use(express.json({ limit: "60mb" }));
 app.use(express.static(path.join(here, "public")));
+
+if (!process.env.SESSION_SECRET) {
+  console.warn("Warning: SESSION_SECRET is not set — using a random secret, so logins won't survive a restart.");
+}
+app.use(cookieSession({
+  name: "dd_session",
+  keys: [process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex")],
+  maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+  httpOnly: true,
+  sameSite: "lax",
+  secure: process.env.NODE_ENV === "production",
+}));
+
+// ---------- Auth ----------
+
+function loadUsers() {
+  try {
+    return JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+function requireAuth(req, res, next) {
+  if (ALLOW_ANONYMOUS || req.session?.user) return next();
+  res.status(401).json({ error: "Not signed in." });
+}
+
+app.post("/api/login", (req, res) => {
+  const { email, password } = req.body ?? {};
+  const users = loadUsers();
+  if (Object.keys(users).length === 0) {
+    return res.status(503).json({
+      error: "No accounts exist yet — on the server, run: node manage-users.js add you@example.com yourpassword",
+    });
+  }
+  const record = users[String(email ?? "").trim().toLowerCase()];
+  if (!record || !bcrypt.compareSync(String(password ?? ""), record.passwordHash)) {
+    return res.status(401).json({ error: "Wrong email or password." });
+  }
+  req.session.user = String(email).trim().toLowerCase();
+  res.json({ user: req.session.user });
+});
+
+app.post("/api/logout", (req, res) => {
+  req.session = null;
+  res.json({ ok: true });
+});
+
+app.get("/api/me", (req, res) => {
+  if (ALLOW_ANONYMOUS) return res.json({ user: "anonymous", anonymous: true });
+  if (req.session?.user) return res.json({ user: req.session.user });
+  res.status(401).json({ error: "Not signed in." });
+});
 
 const SYSTEM_PROMPT = `You are an expert repair technician and salvage specialist with deep
 knowledge across consumer electronics, appliances, power tools, vehicles, and machinery.
@@ -98,7 +159,7 @@ const ANALYSIS_SCHEMA = {
   }
 };
 
-app.post("/api/diagnose", async (req, res) => {
+app.post("/api/diagnose", requireAuth, async (req, res) => {
   try {
     const { images, notes } = req.body ?? {};
     if (!Array.isArray(images) || images.length === 0) {
@@ -150,7 +211,7 @@ app.post("/api/diagnose", async (req, res) => {
   }
 });
 
-app.post("/api/followup", async (req, res) => {
+app.post("/api/followup", requireAuth, async (req, res) => {
   try {
     const { analysis, question, history } = req.body ?? {};
     if (!analysis || !question?.trim()) {

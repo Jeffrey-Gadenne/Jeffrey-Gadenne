@@ -117,7 +117,7 @@ button.secondary {
 }
 button.secondary:hover { background: rgba(245,158,11,.1); }
 
-#status {
+#status, #login-status {
   margin-top: .9rem;
   padding: .6rem .9rem;
   border-radius: 8px;
@@ -125,7 +125,20 @@ button.secondary:hover { background: rgba(245,158,11,.1); }
   border: 1px solid var(--border);
   color: var(--muted);
 }
-#status.error { color: var(--bad); border-color: var(--bad); }
+#status.error, #login-status.error { color: var(--bad); border-color: var(--bad); }
+
+#user-bar { font-size: .85rem; }
+#user-bar a { color: var(--accent); }
+
+input[type="email"], input[type="password"] {
+  width: 100%;
+  background: #11161d;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: .6rem .75rem;
+  font: inherit;
+}
 
 .item {
   border: 1px solid var(--border);

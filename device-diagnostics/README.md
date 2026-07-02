@@ -19,11 +19,24 @@ Requires Node.js 22+ and an [Anthropic API key](https://platform.claude.com/).
 ```bash
 cd device-diagnostics
 npm install
-cp .env.example .env   # then paste your API key into .env
+cp .env.example .env                                  # paste your API key into .env
+node manage-users.js add you@example.com yourpassword # create your login
 npm start
 ```
 
-Open http://localhost:3000.
+Open http://localhost:3000 and sign in.
+
+### Accounts & auth
+
+Sign-in is required before any analysis runs (protects your API credits). Accounts live in `users.json` (bcrypt-hashed, git-ignored) and are managed from the server:
+
+```bash
+node manage-users.js add <email> <password>
+node manage-users.js remove <email>
+node manage-users.js list
+```
+
+Set `SESSION_SECRET` in `.env` so logins survive server restarts, and `NODE_ENV=production` in production so session cookies are HTTPS-only. For local tinkering without auth, start with `ALLOW_ANONYMOUS=true`.
 
 ## How it works
 
@@ -34,6 +47,8 @@ Open http://localhost:3000.
 ## Use it as a phone app
 
 The app is an installable **PWA**. Host it over HTTPS (see [DEPLOY.md](DEPLOY.md) for Azure App Service and Azure VM instructions), open the URL on your phone, and choose *Install app* (Android) or *Share → Add to Home Screen* (iPhone). It launches full-screen with its own icon, and the 📸 button opens the phone camera directly.
+
+For a store-distributable native app (App Store / Play Store), see [mobile/README.md](mobile/README.md) — a Capacitor shell that wraps the hosted app.
 
 ## Notes
 

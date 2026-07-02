@@ -16,10 +16,21 @@
   <header>
     <h1>🔧 Device Diagnostics &amp; Donor Parts</h1>
     <p>Upload photos or a short video of any device. Get an AI diagnosis of what's wrong and a list of components worth salvaging.</p>
+    <p id="user-bar" hidden><span id="user-email"></span> · <a href="#" id="logout-link">Sign out</a></p>
   </header>
 
   <main>
-    <section id="upload-section" class="card">
+    <section id="login-section" class="card" hidden>
+      <h2>🔐 Sign in</h2>
+      <label for="login-email">Email</label>
+      <input type="email" id="login-email" autocomplete="username" />
+      <label for="login-password">Password</label>
+      <input type="password" id="login-password" autocomplete="current-password" />
+      <button id="login-btn">Sign in</button>
+      <div id="login-status" hidden></div>
+    </section>
+
+    <section id="upload-section" class="card" hidden>
       <div id="dropzone" tabindex="0">
         <input type="file" id="file-input" accept="image/*,video/*" multiple hidden />
         <input type="file" id="camera-input" accept="image/*" capture="environment" hidden />

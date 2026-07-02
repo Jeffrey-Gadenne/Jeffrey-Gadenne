@@ -16,6 +16,76 @@ let images = [];
 let currentAnalysis = null;
 let chatHistory = [];
 
+// ---------- Auth ----------
+
+const loginSection = document.getElementById("login-section");
+const uploadSection = document.getElementById("upload-section");
+const userBar = document.getElementById("user-bar");
+const loginStatus = document.getElementById("login-status");
+
+function showLogin() {
+  loginSection.hidden = false;
+  uploadSection.hidden = true;
+  resultsEl.hidden = true;
+  userBar.hidden = true;
+}
+
+function showApp(email) {
+  loginSection.hidden = true;
+  uploadSection.hidden = false;
+  userBar.hidden = false;
+  document.getElementById("user-email").textContent = email;
+}
+
+async function checkSession() {
+  try {
+    const res = await fetch("/api/me");
+    if (res.ok) {
+      const { user, anonymous } = await res.json();
+      showApp(anonymous ? "" : user);
+      if (anonymous) userBar.hidden = true;
+    } else {
+      showLogin();
+    }
+  } catch {
+    showLogin();
+  }
+}
+checkSession();
+
+document.getElementById("login-btn").addEventListener("click", doLogin);
+document.getElementById("login-password").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") doLogin();
+});
+
+async function doLogin() {
+  const email = document.getElementById("login-email").value.trim();
+  const password = document.getElementById("login-password").value;
+  if (!email || !password) return;
+  loginStatus.hidden = true;
+  try {
+    const res = await fetch("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || "Sign-in failed.");
+    document.getElementById("login-password").value = "";
+    showApp(body.user);
+  } catch (err) {
+    loginStatus.hidden = false;
+    loginStatus.textContent = err.message;
+    loginStatus.classList.add("error");
+  }
+}
+
+document.getElementById("logout-link").addEventListener("click", async (e) => {
+  e.preventDefault();
+  await fetch("/api/logout", { method: "POST" });
+  showLogin();
+});
+
 // ---------- File intake ----------
 
 dropzone.addEventListener("click", () => fileInput.click());
@@ -185,6 +255,10 @@ analyzeBtn.addEventListener("click", async () => {
       }),
     });
     const body = await res.json();
+    if (res.status === 401) {
+      showLogin();
+      throw new Error("Signed out — please sign in again.");
+    }
     if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
     currentAnalysis = body.analysis;
     chatHistory = [];
@@ -341,6 +415,10 @@ async function askFollowup() {
       body: JSON.stringify({ analysis: currentAnalysis, question, history: chatHistory }),
     });
     const body = await res.json();
+    if (res.status === 401) {
+      showLogin();
+      throw new Error("Signed out — please sign in again.");
+    }
     if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
     pending.textContent = body.answer;
     chatHistory.push({ role: "user", content: question }, { role: "assistant", content: body.answer });
