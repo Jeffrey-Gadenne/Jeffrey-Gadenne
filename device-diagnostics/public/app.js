@@ -37,6 +37,13 @@ fileInput.addEventListener("change", () => {
   fileInput.value = "";
 });
 
+const cameraInput = document.getElementById("camera-input");
+document.getElementById("camera-btn").addEventListener("click", () => cameraInput.click());
+cameraInput.addEventListener("change", () => {
+  intakeFiles(cameraInput.files);
+  cameraInput.value = "";
+});
+
 async function intakeFiles(fileList) {
   const files = Array.from(fileList);
   setStatus("Processing files…");

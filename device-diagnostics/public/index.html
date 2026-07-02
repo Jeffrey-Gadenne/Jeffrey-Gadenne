@@ -5,6 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Device Diagnostics &amp; Donor Parts</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔧</text></svg>" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <meta name="theme-color" content="#10141a" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -17,9 +22,11 @@
     <section id="upload-section" class="card">
       <div id="dropzone" tabindex="0">
         <input type="file" id="file-input" accept="image/*,video/*" multiple hidden />
+        <input type="file" id="camera-input" accept="image/*" capture="environment" hidden />
         <p><strong>Drop photos or video here</strong> or click to browse</p>
         <p class="hint">Videos are sampled into frames in your browser — nothing is uploaded until you analyze. Up to 12 images total.</p>
       </div>
+      <button id="camera-btn" class="secondary" type="button">📸 Take a photo</button>
       <div id="previews"></div>
       <label for="notes">Describe the problem (optional but helps a lot)</label>
       <textarea id="notes" rows="3"
@@ -62,5 +69,10 @@
   </footer>
 
   <script src="app.js"></script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("sw.js");
+    }
+  </script>
 </body>
 </html>

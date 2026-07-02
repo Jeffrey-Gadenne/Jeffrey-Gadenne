@@ -31,6 +31,10 @@ Open http://localhost:3000.
 2. `POST /api/diagnose` sends the images and your notes to `claude-opus-4-8` with adaptive thinking and a strict JSON schema (`output_config.format`), so the response is always a valid, structured diagnostic report.
 3. `POST /api/followup` continues the conversation using the report as context.
 
+## Use it as a phone app
+
+The app is an installable **PWA**. Host it over HTTPS (see [DEPLOY.md](DEPLOY.md) for Azure App Service and Azure VM instructions), open the URL on your phone, and choose *Install app* (Android) or *Share → Add to Home Screen* (iPhone). It launches full-screen with its own icon, and the 📸 button opens the phone camera directly.
+
 ## Notes
 
 - Up to 12 images per analysis (mix photos and video frames freely).

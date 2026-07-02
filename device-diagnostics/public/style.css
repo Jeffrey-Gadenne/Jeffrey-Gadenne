@@ -109,6 +109,14 @@ button {
 button:hover:not(:disabled) { background: #fbbf24; }
 button:disabled { opacity: .45; cursor: not-allowed; }
 
+button.secondary {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent-dark);
+  font-weight: 600;
+}
+button.secondary:hover { background: rgba(245,158,11,.1); }
+
 #status {
   margin-top: .9rem;
   padding: .6rem .9rem;
