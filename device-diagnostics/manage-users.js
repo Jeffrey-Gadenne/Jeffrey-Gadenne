@@ -51,6 +51,17 @@ switch (cmd) {
     console.log(`${email} removed (${Object.keys(users).length} account(s) remaining).`);
     break;
   }
+  case "plan": {
+    const plan = password; // third arg doubles as the plan name
+    if (!email || !users[email] || !["free", "pro"].includes(plan)) {
+      console.error("Usage: node manage-users.js plan <email> <free|pro>");
+      process.exit(1);
+    }
+    users[email].plan = plan;
+    save(users);
+    console.log(`${email} set to the ${plan} plan.`);
+    break;
+  }
   case "quota": {
     const quota = parseInt(password, 10); // third arg doubles as the quota number
     if (!email || !users[email] || !Number.isInteger(quota) || quota < 0) {
@@ -66,12 +77,12 @@ switch (cmd) {
     const emails = Object.keys(users);
     console.log(
       emails.length
-        ? emails.map((e) => `${e}${Number.isInteger(users[e].quota) ? ` (quota: ${users[e].quota})` : ""}${users[e].apiKeyEnc ? " [own API key]" : ""}`).join("\n")
+        ? emails.map((e) => `${e} [${users[e].plan === "pro" ? "pro" : "free"}]${Number.isInteger(users[e].quota) ? ` (quota: ${users[e].quota})` : ""}${users[e].apiKeyEnc ? " [own API key]" : ""}`).join("\n")
         : "No accounts yet."
     );
     break;
   }
   default:
-    console.error("Usage: node manage-users.js <add|remove|quota|list> [email] [password|quota]");
+    console.error("Usage: node manage-users.js <add|remove|plan|quota|list> [email] [password|plan|quota]");
     process.exit(1);
 }

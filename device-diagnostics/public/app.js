@@ -42,13 +42,19 @@ function showApp(me) {
   }
   userBar.hidden = false;
   document.getElementById("user-email").textContent = me.user;
+  const planName = me.plan === "pro" ? "Pro" : "Free";
   document.getElementById("usage-info").textContent = me.byok
     ? "using your own API key"
-    : `${me.usage.analyses}/${me.usage.quota} analyses this month`;
+    : `${planName} · ${me.usage.analyses}/${me.usage.quota} analyses this month`;
   document.getElementById("byok-status").textContent = me.byok
     ? "✅ You're using your own Anthropic API key — no monthly limit applies."
-    : `You've used ${me.usage.analyses} of ${me.usage.quota} analyses this month on the shared plan.`;
+    : `${planName} plan — ${me.usage.analyses} of ${me.usage.quota} analyses used this month.`;
   document.getElementById("apikey-remove-btn").hidden = !me.byok;
+
+  const upgradeBtn = document.getElementById("upgrade-btn");
+  upgradeBtn.hidden = !(me.billing?.enabled && me.plan !== "pro" && !me.byok);
+  upgradeBtn.textContent = `⭐ Upgrade to Pro — ${me.billing?.pro_quota} analyses/month, ${me.billing?.price}`;
+  document.getElementById("portal-btn").hidden = !(me.billing?.enabled && me.plan === "pro");
 }
 
 async function refreshMe() {
@@ -100,24 +106,54 @@ document.getElementById("apikey-remove-btn").addEventListener("click", async () 
   refreshMe();
 });
 
-document.getElementById("login-btn").addEventListener("click", doLogin);
+async function billingRedirect(endpoint) {
+  accountStatus.hidden = false;
+  accountStatus.classList.remove("error");
+  accountStatus.textContent = "Opening secure checkout…";
+  try {
+    const res = await fetch(endpoint, { method: "POST" });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || "Billing is unavailable right now.");
+    window.location.href = body.url;
+  } catch (err) {
+    accountStatus.classList.add("error");
+    accountStatus.textContent = err.message;
+  }
+}
+
+document.getElementById("upgrade-btn").addEventListener("click", () => billingRedirect("/api/billing/checkout"));
+document.getElementById("portal-btn").addEventListener("click", () => billingRedirect("/api/billing/portal"));
+
+// Returning from a successful Stripe checkout
+if (new URLSearchParams(location.search).get("upgraded") === "1") {
+  history.replaceState(null, "", "/");
+  accountSection.hidden = false;
+  accountStatus.hidden = false;
+  accountStatus.classList.remove("error");
+  accountStatus.textContent = "🎉 Payment received — your Pro plan activates within a few seconds. Refresh if the counter hasn't updated yet.";
+  setTimeout(refreshMe, 3000);
+}
+
+document.getElementById("login-btn").addEventListener("click", () => submitAuth("/api/login", "Sign-in failed."));
+document.getElementById("register-btn").addEventListener("click", () => submitAuth("/api/register", "Could not create the account."));
 document.getElementById("login-password").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") doLogin();
+  if (e.key === "Enter") submitAuth("/api/login", "Sign-in failed.");
 });
 
-async function doLogin() {
+async function submitAuth(endpoint, fallbackError) {
   const email = document.getElementById("login-email").value.trim();
   const password = document.getElementById("login-password").value;
   if (!email || !password) return;
   loginStatus.hidden = true;
+  loginStatus.classList.remove("error");
   try {
-    const res = await fetch("/api/login", {
+    const res = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
     const body = await res.json();
-    if (!res.ok) throw new Error(body.error || "Sign-in failed.");
+    if (!res.ok) throw new Error(body.error || fallbackError);
     document.getElementById("login-password").value = "";
     await refreshMe();
   } catch (err) {

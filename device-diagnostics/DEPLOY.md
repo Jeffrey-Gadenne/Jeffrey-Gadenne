@@ -29,7 +29,9 @@ cd /home/site/wwwroot
 node manage-users.js add you@example.com yourpassword
 ```
 
-> Alternatively set `USERS_FILE=/home/data/users.json` as an app setting first so accounts survive redeploys, and create the account there.
+> **Important for production:** set `USERS_FILE=/home/data/users.json` and `USAGE_FILE=/home/data/usage.json` as app settings (create `/home/data` from the console first). App Service's `/home` persists across restarts and redeploys; the app folder does not — without this, accounts and usage records are wiped on every deploy.
+>
+> **Selling subscriptions?** Also set the Stripe app settings (`STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID`, `STRIPE_WEBHOOK_SECRET`, `PLAN_PRICE_DISPLAY`, `APP_URL`) — see the README's monetization section for the Stripe dashboard steps.
 
 ### Auto-deploy from GitHub (optional, no credentials shared)
 

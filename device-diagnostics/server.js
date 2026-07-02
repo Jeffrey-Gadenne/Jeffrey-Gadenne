@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import Anthropic from "@anthropic-ai/sdk";
 import cookieSession from "cookie-session";
 import bcrypt from "bcryptjs";
+import Stripe from "stripe";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -16,12 +17,69 @@ const MAX_IMAGES = 12;
 const USERS_FILE = process.env.USERS_FILE || path.join(here, "users.json");
 const USAGE_FILE = process.env.USAGE_FILE || path.join(here, "usage.json");
 const ALLOW_ANONYMOUS = process.env.ALLOW_ANONYMOUS === "true";
-const DEFAULT_MONTHLY_QUOTA = parseInt(process.env.DEFAULT_MONTHLY_QUOTA || "25", 10);
+const ALLOW_SIGNUPS = process.env.ALLOW_SIGNUPS !== "false";
+const FREE_MONTHLY_QUOTA = parseInt(process.env.FREE_MONTHLY_QUOTA || "3", 10);
+const PRO_MONTHLY_QUOTA = parseInt(process.env.PRO_MONTHLY_QUOTA || "30", 10);
+const PLAN_PRICE_DISPLAY = process.env.PLAN_PRICE_DISPLAY || "$15/month";
+const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
+const BILLING_ENABLED = Boolean(stripe && process.env.STRIPE_PRICE_ID);
 // USD per million tokens, for the cost estimates in usage records (Opus 4.8 pricing)
 const PRICE_PER_MTOK = { input: 5, output: 25 };
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
 
 app.set("trust proxy", 1); // Azure App Service / reverse proxies terminate TLS
+
+// Stripe webhook — must see the raw body for signature verification, so it's
+// registered before the JSON body parser.
+app.post("/api/billing/webhook", express.raw({ type: "application/json" }), (req, res) => {
+  if (!stripe || !process.env.STRIPE_WEBHOOK_SECRET) return res.status(503).end();
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(req.body, req.headers["stripe-signature"], process.env.STRIPE_WEBHOOK_SECRET);
+  } catch {
+    return res.status(400).send("Invalid signature");
+  }
+
+  const users = loadUsers();
+  const byCustomer = (customerId) =>
+    Object.keys(users).find((e) => users[e].stripeCustomerId === customerId);
+
+  switch (event.type) {
+    case "checkout.session.completed": {
+      const s = event.data.object;
+      const email = (s.client_reference_id || s.customer_details?.email || "").toLowerCase();
+      if (users[email]) {
+        users[email].plan = "pro";
+        users[email].stripeCustomerId = s.customer;
+        users[email].stripeSubscriptionId = s.subscription;
+        saveUsers(users);
+        console.log(`Billing: ${email} upgraded to pro.`);
+      }
+      break;
+    }
+    case "customer.subscription.deleted": {
+      const email = byCustomer(event.data.object.customer);
+      if (email) {
+        users[email].plan = "free";
+        delete users[email].stripeSubscriptionId;
+        saveUsers(users);
+        console.log(`Billing: ${email} subscription ended — back to free.`);
+      }
+      break;
+    }
+    case "customer.subscription.updated": {
+      const sub = event.data.object;
+      const email = byCustomer(sub.customer);
+      if (email) {
+        users[email].plan = ["canceled", "unpaid", "incomplete_expired"].includes(sub.status) ? "free" : "pro";
+        saveUsers(users);
+      }
+      break;
+    }
+  }
+  res.json({ received: true });
+});
+
 app.use(express.json({ limit: "60mb" }));
 app.use(express.static(path.join(here, "public")));
 
@@ -129,8 +187,35 @@ function recordUsage(email, kind, apiUsage) {
 
 function quotaFor(email) {
   const record = loadUsers()[email];
-  return Number.isInteger(record?.quota) ? record.quota : DEFAULT_MONTHLY_QUOTA;
+  if (Number.isInteger(record?.quota)) return record.quota; // explicit per-user override wins
+  return record?.plan === "pro" ? PRO_MONTHLY_QUOTA : FREE_MONTHLY_QUOTA;
 }
+
+function planFor(email) {
+  return loadUsers()[email]?.plan === "pro" ? "pro" : "free";
+}
+
+app.post("/api/register", (req, res) => {
+  if (!ALLOW_SIGNUPS) {
+    return res.status(503).json({ error: "Sign-ups are closed — contact the site owner for an account." });
+  }
+  const email = String(req.body?.email ?? "").trim().toLowerCase();
+  const password = String(req.body?.password ?? "");
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: "Enter a valid email address." });
+  }
+  if (password.length < 8) {
+    return res.status(400).json({ error: "Password must be at least 8 characters." });
+  }
+  const users = loadUsers();
+  if (users[email]) {
+    return res.status(409).json({ error: "An account with that email already exists — sign in instead." });
+  }
+  users[email] = { passwordHash: bcrypt.hashSync(password, 10), createdAt: new Date().toISOString(), plan: "free" };
+  saveUsers(users);
+  req.session.user = email;
+  res.json({ user: email });
+});
 
 app.post("/api/login", (req, res) => {
   const { email, password } = req.body ?? {};
@@ -162,8 +247,51 @@ app.get("/api/me", (req, res) => {
     user: email,
     anonymous: email === "anonymous",
     byok,
+    plan: planFor(email),
+    billing: { enabled: BILLING_ENABLED, price: PLAN_PRICE_DISPLAY, pro_quota: PRO_MONTHLY_QUOTA },
     usage: { month: monthKey(), analyses: usage.analyses, quota: quotaFor(email) },
   });
+});
+
+app.post("/api/billing/checkout", requireAuth, async (req, res) => {
+  if (!BILLING_ENABLED) {
+    return res.status(503).json({ error: "Billing isn't configured on this server yet." });
+  }
+  const email = currentUser(req);
+  if (email === "anonymous") return res.status(400).json({ error: "Sign in with an account to subscribe." });
+  try {
+    const appUrl = process.env.APP_URL || `${req.protocol}://${req.get("host")}`;
+    const session = await stripe.checkout.sessions.create({
+      mode: "subscription",
+      line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
+      client_reference_id: email,
+      customer_email: email,
+      success_url: `${appUrl}/?upgraded=1`,
+      cancel_url: `${appUrl}/`,
+    });
+    res.json({ url: session.url });
+  } catch (err) {
+    console.error("Stripe checkout error:", err.message);
+    res.status(502).json({ error: "Could not start checkout — try again shortly." });
+  }
+});
+
+app.post("/api/billing/portal", requireAuth, async (req, res) => {
+  if (!stripe) return res.status(503).json({ error: "Billing isn't configured on this server yet." });
+  const email = currentUser(req);
+  const customerId = loadUsers()[email]?.stripeCustomerId;
+  if (!customerId) return res.status(400).json({ error: "No subscription found for this account." });
+  try {
+    const appUrl = process.env.APP_URL || `${req.protocol}://${req.get("host")}`;
+    const session = await stripe.billingPortal.sessions.create({
+      customer: customerId,
+      return_url: `${appUrl}/`,
+    });
+    res.json({ url: session.url });
+  } catch (err) {
+    console.error("Stripe portal error:", err.message);
+    res.status(502).json({ error: "Could not open the billing portal — try again shortly." });
+  }
 });
 
 app.post("/api/apikey", requireAuth, async (req, res) => {
@@ -294,8 +422,11 @@ app.post("/api/diagnose", requireAuth, async (req, res) => {
       const used = usageFor(email).analyses;
       const quota = quotaFor(email);
       if (used >= quota) {
+        const upgradeHint = BILLING_ENABLED && planFor(email) !== "pro"
+          ? `Upgrade to Pro (${PRO_MONTHLY_QUOTA} analyses/month, ${PLAN_PRICE_DISPLAY}) in Account settings, or add`
+          : "Add";
         return res.status(429).json({
-          error: `Monthly limit reached (${used}/${quota} analyses). Add your own Anthropic API key in Account settings for unlimited use, or wait until next month.`,
+          error: `Monthly limit reached (${used}/${quota} analyses). ${upgradeHint} your own Anthropic API key for unlimited use.`,
           quota_exceeded: true,
         });
       }

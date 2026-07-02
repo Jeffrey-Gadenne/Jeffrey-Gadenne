@@ -27,12 +27,18 @@
       <label for="login-password">Password</label>
       <input type="password" id="login-password" autocomplete="current-password" />
       <button id="login-btn">Sign in</button>
+      <button id="register-btn" class="secondary">Create account</button>
+      <p class="hint-text">New accounts start on the free plan. Upgrade any time, or use your own Anthropic API key.</p>
       <div id="login-status" hidden></div>
     </section>
 
     <section id="account-section" class="card" hidden>
       <h2>⚙️ Account</h2>
       <p id="byok-status"></p>
+      <div id="billing-box">
+        <button id="upgrade-btn" hidden>⭐ Upgrade to Pro</button>
+        <button id="portal-btn" class="secondary" hidden>Manage subscription</button>
+      </div>
       <label for="apikey-input">Your Anthropic API key</label>
       <input type="password" id="apikey-input" placeholder="sk-ant-..." autocomplete="off" />
       <p class="hint-text">With your own key, analyses run on your Anthropic account and don't count against the monthly limit here. The key is stored encrypted on the server and never shown again. Get one at platform.claude.com.</p>

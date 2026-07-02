@@ -38,15 +38,28 @@ node manage-users.js list
 
 Set `SESSION_SECRET` in `.env` so logins survive server restarts, and `NODE_ENV=production` in production so session cookies are HTTPS-only. For local tinkering without auth, start with `ALLOW_ANONYMOUS=true`.
 
-### Usage metering, quotas & bring-your-own-key
+### Plans, metering & monetization
 
-Every analysis and follow-up is metered per account (tokens + estimated cost, written to a git-ignored `usage.json`). Accounts get `DEFAULT_MONTHLY_QUOTA` analyses per month (default 25); override per user:
+Users can self-register in the app (disable with `ALLOW_SIGNUPS=false`). Every analysis and follow-up is metered per account (tokens + estimated cost, in a git-ignored `usage.json`). Three tiers:
+
+| Tier | Quota | Who pays for the API |
+|---|---|---|
+| **Free** | `FREE_MONTHLY_QUOTA` analyses/month (default 3) | You |
+| **Pro** (Stripe subscription) | `PRO_MONTHLY_QUOTA` analyses/month (default 30) | You, covered by the subscription |
+| **Bring-your-own-key** | Unlimited | The user (their key, encrypted at rest) |
+
+Per-user overrides: `node manage-users.js quota <email> <n>` and `node manage-users.js plan <email> <free|pro>`.
+
+**Stripe setup:** create a recurring Price in the [Stripe dashboard](https://dashboard.stripe.com), add a webhook endpoint pointing at `https://<your-host>/api/billing/webhook` (events: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`), then set:
 
 ```bash
-node manage-users.js quota someone@example.com 100
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_PRICE_ID=price_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+PLAN_PRICE_DISPLAY="A$15/month"   # what the upgrade button shows
 ```
 
-When the quota is hit, `/api/diagnose` returns 429 and the UI explains the options. Users can also open **Account** in the app and store their **own Anthropic API key** (verified against the API, then encrypted at rest with AES-256-GCM keyed off `SESSION_SECRET`) — their analyses then bill to their own Anthropic account and bypass the quota entirely.
+Without these set, billing UI stays hidden and everything else works (free tier + BYOK).
 
 `MODEL` is also configurable via env (default `claude-opus-4-8`) — e.g. `MODEL=claude-sonnet-5` for ~40–60% lower cost per analysis.
 
