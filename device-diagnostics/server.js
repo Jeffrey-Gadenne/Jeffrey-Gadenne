@@ -11,10 +11,15 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const client = new Anthropic();
 
-const MODEL = "claude-opus-4-8";
+const MODEL = process.env.MODEL || "claude-opus-4-8";
 const MAX_IMAGES = 12;
 const USERS_FILE = process.env.USERS_FILE || path.join(here, "users.json");
+const USAGE_FILE = process.env.USAGE_FILE || path.join(here, "usage.json");
 const ALLOW_ANONYMOUS = process.env.ALLOW_ANONYMOUS === "true";
+const DEFAULT_MONTHLY_QUOTA = parseInt(process.env.DEFAULT_MONTHLY_QUOTA || "25", 10);
+// USD per million tokens, for the cost estimates in usage records (Opus 4.8 pricing)
+const PRICE_PER_MTOK = { input: 5, output: 25 };
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
 
 app.set("trust proxy", 1); // Azure App Service / reverse proxies terminate TLS
 app.use(express.json({ limit: "60mb" }));
@@ -25,7 +30,7 @@ if (!process.env.SESSION_SECRET) {
 }
 app.use(cookieSession({
   name: "dd_session",
-  keys: [process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex")],
+  keys: [SESSION_SECRET],
   maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
   httpOnly: true,
   sameSite: "lax",
@@ -42,9 +47,89 @@ function loadUsers() {
   }
 }
 
+function saveUsers(users) {
+  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2) + "\n", { mode: 0o600 });
+}
+
 function requireAuth(req, res, next) {
   if (ALLOW_ANONYMOUS || req.session?.user) return next();
   res.status(401).json({ error: "Not signed in." });
+}
+
+function currentUser(req) {
+  return ALLOW_ANONYMOUS && !req.session?.user ? "anonymous" : req.session?.user;
+}
+
+// ---------- Bring-your-own-API-key (encrypted at rest) ----------
+
+function encryptionKey() {
+  return crypto.createHash("sha256").update("apikey:" + SESSION_SECRET).digest();
+}
+
+function encryptSecret(text) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", encryptionKey(), iv);
+  const enc = Buffer.concat([cipher.update(text, "utf8"), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), enc]).toString("base64");
+}
+
+function decryptSecret(b64) {
+  try {
+    const buf = Buffer.from(b64, "base64");
+    const decipher = crypto.createDecipheriv("aes-256-gcm", encryptionKey(), buf.subarray(0, 12));
+    decipher.setAuthTag(buf.subarray(12, 28));
+    return Buffer.concat([decipher.update(buf.subarray(28)), decipher.final()]).toString("utf8");
+  } catch {
+    return null; // wrong/rotated SESSION_SECRET — treat as no key stored
+  }
+}
+
+/** Returns {client, byok} — the caller's own-key client when they stored one, else the app's. */
+function clientFor(email) {
+  const record = loadUsers()[email];
+  if (record?.apiKeyEnc) {
+    const key = decryptSecret(record.apiKeyEnc);
+    if (key) return { client: new Anthropic({ apiKey: key }), byok: true };
+  }
+  return { client, byok: false };
+}
+
+// ---------- Usage metering & quotas ----------
+
+function monthKey() {
+  return new Date().toISOString().slice(0, 7); // "2026-07"
+}
+
+function loadUsage() {
+  try {
+    return JSON.parse(fs.readFileSync(USAGE_FILE, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+function usageFor(email) {
+  const all = loadUsage();
+  return all[email]?.[monthKey()] ?? { analyses: 0, followups: 0, input_tokens: 0, output_tokens: 0, est_cost_usd: 0 };
+}
+
+function recordUsage(email, kind, apiUsage) {
+  const all = loadUsage();
+  const month = monthKey();
+  const entry = all[email]?.[month] ?? { analyses: 0, followups: 0, input_tokens: 0, output_tokens: 0, est_cost_usd: 0 };
+  const inputTokens = (apiUsage?.input_tokens ?? 0) + (apiUsage?.cache_read_input_tokens ?? 0) + (apiUsage?.cache_creation_input_tokens ?? 0);
+  const outputTokens = apiUsage?.output_tokens ?? 0;
+  entry[kind === "analysis" ? "analyses" : "followups"] += 1;
+  entry.input_tokens += inputTokens;
+  entry.output_tokens += outputTokens;
+  entry.est_cost_usd = +(entry.est_cost_usd + (inputTokens * PRICE_PER_MTOK.input + outputTokens * PRICE_PER_MTOK.output) / 1e6).toFixed(4);
+  all[email] = { ...(all[email] ?? {}), [month]: entry };
+  fs.writeFileSync(USAGE_FILE, JSON.stringify(all, null, 2) + "\n", { mode: 0o600 });
+}
+
+function quotaFor(email) {
+  const record = loadUsers()[email];
+  return Number.isInteger(record?.quota) ? record.quota : DEFAULT_MONTHLY_QUOTA;
 }
 
 app.post("/api/login", (req, res) => {
@@ -69,9 +154,51 @@ app.post("/api/logout", (req, res) => {
 });
 
 app.get("/api/me", (req, res) => {
-  if (ALLOW_ANONYMOUS) return res.json({ user: "anonymous", anonymous: true });
-  if (req.session?.user) return res.json({ user: req.session.user });
-  res.status(401).json({ error: "Not signed in." });
+  const email = currentUser(req);
+  if (!email) return res.status(401).json({ error: "Not signed in." });
+  const { byok } = clientFor(email);
+  const usage = usageFor(email);
+  res.json({
+    user: email,
+    anonymous: email === "anonymous",
+    byok,
+    usage: { month: monthKey(), analyses: usage.analyses, quota: quotaFor(email) },
+  });
+});
+
+app.post("/api/apikey", requireAuth, async (req, res) => {
+  const email = currentUser(req);
+  const apiKey = String(req.body?.apiKey ?? "").trim();
+  if (!apiKey.startsWith("sk-ant-")) {
+    return res.status(400).json({ error: "That doesn't look like an Anthropic API key (should start with sk-ant-)." });
+  }
+  try {
+    // Cheap validation call before storing
+    await new Anthropic({ apiKey }).messages.countTokens({
+      model: MODEL,
+      messages: [{ role: "user", content: "ping" }],
+    });
+  } catch (err) {
+    if (err instanceof Anthropic.AuthenticationError) {
+      return res.status(400).json({ error: "Anthropic rejected that API key — check it and try again." });
+    }
+    return res.status(502).json({ error: "Could not verify the key with the Claude API — try again shortly." });
+  }
+  const users = loadUsers();
+  if (!users[email]) return res.status(400).json({ error: "No account record — sign in with a real account first." });
+  users[email].apiKeyEnc = encryptSecret(apiKey);
+  saveUsers(users);
+  res.json({ byok: true });
+});
+
+app.delete("/api/apikey", requireAuth, (req, res) => {
+  const email = currentUser(req);
+  const users = loadUsers();
+  if (users[email]) {
+    delete users[email].apiKeyEnc;
+    saveUsers(users);
+  }
+  res.json({ byok: false });
 });
 
 const SYSTEM_PROMPT = `You are an expert repair technician and salvage specialist with deep
@@ -161,6 +288,19 @@ const ANALYSIS_SCHEMA = {
 
 app.post("/api/diagnose", requireAuth, async (req, res) => {
   try {
+    const email = currentUser(req);
+    const { client: userClient, byok } = clientFor(email);
+    if (!byok) {
+      const used = usageFor(email).analyses;
+      const quota = quotaFor(email);
+      if (used >= quota) {
+        return res.status(429).json({
+          error: `Monthly limit reached (${used}/${quota} analyses). Add your own Anthropic API key in Account settings for unlimited use, or wait until next month.`,
+          quota_exceeded: true,
+        });
+      }
+    }
+
     const { images, notes } = req.body ?? {};
     if (!Array.isArray(images) || images.length === 0) {
       return res.status(400).json({ error: "Provide at least one image (photo or video frame)." });
@@ -184,7 +324,7 @@ app.post("/api/diagnose", requireAuth, async (req, res) => {
         : "No notes provided — diagnose from the images alone.",
     });
 
-    const stream = client.messages.stream({
+    const stream = userClient.messages.stream({
       model: MODEL,
       max_tokens: 32000,
       thinking: { type: "adaptive" },
@@ -205,6 +345,7 @@ app.post("/api/diagnose", requireAuth, async (req, res) => {
     if (!text) {
       return res.status(502).json({ error: "The model returned no analysis." });
     }
+    recordUsage(email, "analysis", message.usage);
     res.json({ analysis: JSON.parse(text) });
   } catch (err) {
     handleApiError(err, res);
@@ -213,6 +354,8 @@ app.post("/api/diagnose", requireAuth, async (req, res) => {
 
 app.post("/api/followup", requireAuth, async (req, res) => {
   try {
+    const email = currentUser(req);
+    const { client: userClient } = clientFor(email);
     const { analysis, question, history } = req.body ?? {};
     if (!analysis || !question?.trim()) {
       return res.status(400).json({ error: "Provide the prior analysis and a question." });
@@ -234,7 +377,7 @@ app.post("/api/followup", requireAuth, async (req, res) => {
     }
     messages.push({ role: "user", content: question.trim() });
 
-    const stream = client.messages.stream({
+    const stream = userClient.messages.stream({
       model: MODEL,
       max_tokens: 16000,
       thinking: { type: "adaptive" },
@@ -250,6 +393,7 @@ app.post("/api/followup", requireAuth, async (req, res) => {
       return res.status(422).json({ error: "The model declined to answer this question." });
     }
     const text = message.content.find((b) => b.type === "text")?.text ?? "";
+    recordUsage(email, "followup", message.usage);
     res.json({ answer: text });
   } catch (err) {
     handleApiError(err, res);

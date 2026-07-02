@@ -16,7 +16,7 @@
   <header>
     <h1>🔧 Device Diagnostics &amp; Donor Parts</h1>
     <p>Upload photos or a short video of any device. Get an AI diagnosis of what's wrong and a list of components worth salvaging.</p>
-    <p id="user-bar" hidden><span id="user-email"></span> · <a href="#" id="logout-link">Sign out</a></p>
+    <p id="user-bar" hidden><span id="user-email"></span> · <span id="usage-info"></span> · <a href="#" id="account-link">Account</a> · <a href="#" id="logout-link">Sign out</a></p>
   </header>
 
   <main>
@@ -28,6 +28,17 @@
       <input type="password" id="login-password" autocomplete="current-password" />
       <button id="login-btn">Sign in</button>
       <div id="login-status" hidden></div>
+    </section>
+
+    <section id="account-section" class="card" hidden>
+      <h2>⚙️ Account</h2>
+      <p id="byok-status"></p>
+      <label for="apikey-input">Your Anthropic API key</label>
+      <input type="password" id="apikey-input" placeholder="sk-ant-..." autocomplete="off" />
+      <p class="hint-text">With your own key, analyses run on your Anthropic account and don't count against the monthly limit here. The key is stored encrypted on the server and never shown again. Get one at platform.claude.com.</p>
+      <button id="apikey-save-btn">Save key</button>
+      <button id="apikey-remove-btn" class="secondary" hidden>Remove my key</button>
+      <div id="account-status" hidden></div>
     </section>
 
     <section id="upload-section" class="card" hidden>

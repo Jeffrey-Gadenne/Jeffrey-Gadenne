@@ -117,7 +117,9 @@ button.secondary {
 }
 button.secondary:hover { background: rgba(245,158,11,.1); }
 
-#status, #login-status {
+.hint-text { color: var(--muted); font-size: .85rem; }
+
+#status, #login-status, #account-status {
   margin-top: .9rem;
   padding: .6rem .9rem;
   border-radius: 8px;
@@ -125,7 +127,7 @@ button.secondary:hover { background: rgba(245,158,11,.1); }
   border: 1px solid var(--border);
   color: var(--muted);
 }
-#status.error, #login-status.error { color: var(--bad); border-color: var(--bad); }
+#status.error, #login-status.error, #account-status.error { color: var(--bad); border-color: var(--bad); }
 
 #user-bar { font-size: .85rem; }
 #user-bar a { color: var(--accent); }

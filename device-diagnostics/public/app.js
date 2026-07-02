@@ -28,30 +28,77 @@ function showLogin() {
   uploadSection.hidden = true;
   resultsEl.hidden = true;
   userBar.hidden = true;
+  document.getElementById("account-section").hidden = true;
 }
 
-function showApp(email) {
+const accountSection = document.getElementById("account-section");
+
+function showApp(me) {
   loginSection.hidden = true;
   uploadSection.hidden = false;
+  if (me.anonymous) {
+    userBar.hidden = true;
+    return;
+  }
   userBar.hidden = false;
-  document.getElementById("user-email").textContent = email;
+  document.getElementById("user-email").textContent = me.user;
+  document.getElementById("usage-info").textContent = me.byok
+    ? "using your own API key"
+    : `${me.usage.analyses}/${me.usage.quota} analyses this month`;
+  document.getElementById("byok-status").textContent = me.byok
+    ? "✅ You're using your own Anthropic API key — no monthly limit applies."
+    : `You've used ${me.usage.analyses} of ${me.usage.quota} analyses this month on the shared plan.`;
+  document.getElementById("apikey-remove-btn").hidden = !me.byok;
 }
 
-async function checkSession() {
+async function refreshMe() {
   try {
     const res = await fetch("/api/me");
-    if (res.ok) {
-      const { user, anonymous } = await res.json();
-      showApp(anonymous ? "" : user);
-      if (anonymous) userBar.hidden = true;
-    } else {
-      showLogin();
-    }
+    if (!res.ok) return showLogin();
+    showApp(await res.json());
   } catch {
     showLogin();
   }
 }
-checkSession();
+refreshMe();
+
+document.getElementById("account-link").addEventListener("click", (e) => {
+  e.preventDefault();
+  accountSection.hidden = !accountSection.hidden;
+});
+
+const accountStatus = document.getElementById("account-status");
+
+document.getElementById("apikey-save-btn").addEventListener("click", async () => {
+  const apiKey = document.getElementById("apikey-input").value.trim();
+  if (!apiKey) return;
+  accountStatus.hidden = false;
+  accountStatus.classList.remove("error");
+  accountStatus.textContent = "Verifying key with the Claude API…";
+  try {
+    const res = await fetch("/api/apikey", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apiKey }),
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || "Could not save the key.");
+    document.getElementById("apikey-input").value = "";
+    accountStatus.textContent = "Key saved — analyses now run on your own Anthropic account.";
+    refreshMe();
+  } catch (err) {
+    accountStatus.classList.add("error");
+    accountStatus.textContent = err.message;
+  }
+});
+
+document.getElementById("apikey-remove-btn").addEventListener("click", async () => {
+  await fetch("/api/apikey", { method: "DELETE" });
+  accountStatus.hidden = false;
+  accountStatus.classList.remove("error");
+  accountStatus.textContent = "Key removed — you're back on the shared plan.";
+  refreshMe();
+});
 
 document.getElementById("login-btn").addEventListener("click", doLogin);
 document.getElementById("login-password").addEventListener("keydown", (e) => {
@@ -72,7 +119,7 @@ async function doLogin() {
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || "Sign-in failed.");
     document.getElementById("login-password").value = "";
-    showApp(body.user);
+    await refreshMe();
   } catch (err) {
     loginStatus.hidden = false;
     loginStatus.textContent = err.message;
@@ -267,6 +314,8 @@ analyzeBtn.addEventListener("click", async () => {
     clearStatus();
     resultsEl.hidden = false;
     resultsEl.scrollIntoView({ behavior: "smooth" });
+    refreshMe(); // update the usage counter
+
   } catch (err) {
     setStatus(err.message, true);
   } finally {

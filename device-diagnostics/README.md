@@ -38,6 +38,18 @@ node manage-users.js list
 
 Set `SESSION_SECRET` in `.env` so logins survive server restarts, and `NODE_ENV=production` in production so session cookies are HTTPS-only. For local tinkering without auth, start with `ALLOW_ANONYMOUS=true`.
 
+### Usage metering, quotas & bring-your-own-key
+
+Every analysis and follow-up is metered per account (tokens + estimated cost, written to a git-ignored `usage.json`). Accounts get `DEFAULT_MONTHLY_QUOTA` analyses per month (default 25); override per user:
+
+```bash
+node manage-users.js quota someone@example.com 100
+```
+
+When the quota is hit, `/api/diagnose` returns 429 and the UI explains the options. Users can also open **Account** in the app and store their **own Anthropic API key** (verified against the API, then encrypted at rest with AES-256-GCM keyed off `SESSION_SECRET`) — their analyses then bill to their own Anthropic account and bypass the quota entirely.
+
+`MODEL` is also configurable via env (default `claude-opus-4-8`) — e.g. `MODEL=claude-sonnet-5` for ~40–60% lower cost per analysis.
+
 ## How it works
 
 1. The browser resizes photos (and extracts up to 6 evenly-spaced frames per video) to ≤1568 px JPEG via canvas — no video processing on the server, and image tokens stay cheap.

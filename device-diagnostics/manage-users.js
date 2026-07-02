@@ -51,12 +51,27 @@ switch (cmd) {
     console.log(`${email} removed (${Object.keys(users).length} account(s) remaining).`);
     break;
   }
+  case "quota": {
+    const quota = parseInt(password, 10); // third arg doubles as the quota number
+    if (!email || !users[email] || !Number.isInteger(quota) || quota < 0) {
+      console.error("Usage: node manage-users.js quota <email> <analyses-per-month>");
+      process.exit(1);
+    }
+    users[email].quota = quota;
+    save(users);
+    console.log(`${email} quota set to ${quota} analyses/month.`);
+    break;
+  }
   case "list": {
     const emails = Object.keys(users);
-    console.log(emails.length ? emails.join("\n") : "No accounts yet.");
+    console.log(
+      emails.length
+        ? emails.map((e) => `${e}${Number.isInteger(users[e].quota) ? ` (quota: ${users[e].quota})` : ""}${users[e].apiKeyEnc ? " [own API key]" : ""}`).join("\n")
+        : "No accounts yet."
+    );
     break;
   }
   default:
-    console.error("Usage: node manage-users.js <add|remove|list> [email] [password]");
+    console.error("Usage: node manage-users.js <add|remove|quota|list> [email] [password|quota]");
     process.exit(1);
 }
