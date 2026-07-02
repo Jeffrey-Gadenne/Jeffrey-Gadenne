@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Device Diagnostics &amp; Donor Parts</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔧</text></svg>" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>🔧 Device Diagnostics &amp; Donor Parts</h1>
+    <p>Upload photos or a short video of any device. Get an AI diagnosis of what's wrong and a list of components worth salvaging.</p>
+  </header>
+
+  <main>
+    <section id="upload-section" class="card">
+      <div id="dropzone" tabindex="0">
+        <input type="file" id="file-input" accept="image/*,video/*" multiple hidden />
+        <p><strong>Drop photos or video here</strong> or click to browse</p>
+        <p class="hint">Videos are sampled into frames in your browser — nothing is uploaded until you analyze. Up to 12 images total.</p>
+      </div>
+      <div id="previews"></div>
+      <label for="notes">Describe the problem (optional but helps a lot)</label>
+      <textarea id="notes" rows="3"
+        placeholder="e.g. Washing machine drum won't spin, makes a clicking noise, tripped the breaker twice last week..."></textarea>
+      <button id="analyze-btn" disabled>Analyze device</button>
+      <div id="status" hidden></div>
+    </section>
+
+    <section id="results" hidden>
+      <div class="card" id="device-card"></div>
+      <div class="card">
+        <h2>🩺 Diagnosis</h2>
+        <div id="diagnosis-list"></div>
+      </div>
+      <div class="card">
+        <h2>♻️ Donor parts worth salvaging</h2>
+        <div id="parts-list"></div>
+      </div>
+      <div class="card" id="safety-card" hidden>
+        <h2>⚠️ Safety warnings</h2>
+        <ul id="safety-list"></ul>
+      </div>
+      <div class="card" id="quality-card" hidden>
+        <h2>📷 Image quality notes</h2>
+        <p id="quality-notes"></p>
+      </div>
+      <div class="card" id="followup-card">
+        <h2>💬 Ask a follow-up</h2>
+        <div id="chat-log"></div>
+        <div class="chat-input">
+          <input type="text" id="followup-input" placeholder="e.g. How do I test whether the motor is actually dead?" />
+          <button id="followup-btn">Ask</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>Diagnoses are AI-generated from your images and notes — always verify before working on mains-powered or pressurized equipment.</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
