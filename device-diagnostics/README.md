@@ -46,12 +46,12 @@ Users can self-register in the app (disable with `ALLOW_SIGNUPS=false`). Every a
 |---|---|---|
 | **Free** | `FREE_MONTHLY_QUOTA` analyses/month (default 3) | You |
 | **Credit packs** (one-off purchase) | `PACK_CREDITS` analyses per pack (default 5), never expire, used after the monthly quota | You, covered by the purchase |
-| **Pro** (Stripe subscription) | `PRO_MONTHLY_QUOTA` analyses/month (default 30) | You, covered by the subscription |
-| **Pro + own key** | Unlimited | The user (their key, encrypted at rest) — they still pay the subscription |
+| **Pro** (Stripe subscription) | `PRO_MONTHLY_QUOTA` analyses/month (default 30), API costs included | You, covered by the subscription |
+| **Bring-your-own-key** (cheaper Stripe subscription) | No cap applied by the app | The user — analyses bill to their own Anthropic key (encrypted at rest) |
 
-Packs suit occasional users (fix one thing, buy once); the subscription suits trade users (repair shops, refurbishers, salvage) — price it accordingly. Per-user overrides: `node manage-users.js quota|plan|credits <email> <value>`.
+Packs suit occasional users (fix one thing, buy once); Pro suits trade users who want one all-inclusive bill; the BYOK plan suits technical users — a small platform fee for the software while they pay Anthropic directly for usage. Nobody pays twice for the same thing. Per-user overrides: `node manage-users.js quota|plan|credits <email> <free|pro|byok|number>`.
 
-**Bring-your-own-key is a Pro perk by default** (`BYOK_MODE=pro`), so it adds revenue instead of bypassing it: heavy users pay the subscription *and* their own API bill — your highest-margin tier. Set `BYOK_MODE=open` to let anyone use their own key (useful pre-launch for testers), or `BYOK_MODE=off` to disable it entirely. A key saved while on Pro simply goes inactive if the subscription lapses.
+**Own keys require a subscription by default** (`BYOK_MODE=paid`) so the feature adds revenue instead of bypassing it. Set `BYOK_MODE=open` to let anyone use their own key (useful pre-launch for testers), or `BYOK_MODE=off` to disable keys entirely. A saved key automatically goes inactive if the subscription lapses. Avoid marketing the BYOK plan as "unlimited" — usage is still bounded by the user's own Anthropic budget and rate limits; say "no cap from us" instead.
 
 **Stripe setup:** in the [Stripe dashboard](https://dashboard.stripe.com) create a Product with a **recurring** Price (subscription) and one with a **one-off** Price (pack), add a webhook endpoint pointing at `https://<your-host>/api/billing/webhook` (events: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`), then set:
 
@@ -59,9 +59,11 @@ Packs suit occasional users (fix one thing, buy once); the subscription suits tr
 STRIPE_SECRET_KEY=sk_live_...
 STRIPE_PRICE_ID=price_...          # recurring price → Pro subscription
 STRIPE_PACK_PRICE_ID=price_...     # one-off price → credit packs
+STRIPE_BYOK_PRICE_ID=price_...     # cheaper recurring price → bring-your-own-key plan
 STRIPE_WEBHOOK_SECRET=whsec_...
 PLAN_PRICE_DISPLAY="A$29/month"
 PACK_PRICE_DISPLAY="A$7"
+BYOK_PLAN_PRICE_DISPLAY="A$9/month"
 ```
 
 Each is optional — configure only the subscription, only packs, or neither (billing UI hides; free tier + BYOK still work).
@@ -77,6 +79,7 @@ PACK_CREDITS=5               # consumer tier: A$7 pack costs you ~A$1.50 in API
 PACK_PRICE_DISPLAY="A$7"
 PRO_MONTHLY_QUOTA=100        # trade tier: repair shops, refurbishers, salvage
 PLAN_PRICE_DISPLAY="A$29/month"   # capped-out worst case ~A$24 API — typical far less
+BYOK_PLAN_PRICE_DISPLAY="A$9/month"  # platform fee, zero API cost to you
 ```
 
 `MODEL` is also configurable via env (default `claude-opus-4-8`) — e.g. `MODEL=claude-sonnet-5` for ~40–60% lower cost per analysis.

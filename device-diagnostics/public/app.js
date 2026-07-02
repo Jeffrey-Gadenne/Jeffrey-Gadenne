@@ -42,31 +42,38 @@ function showApp(me) {
   }
   userBar.hidden = false;
   document.getElementById("user-email").textContent = me.user;
-  const planName = me.plan === "pro" ? "Pro" : "Free";
+  const planName = { pro: "Pro", byok: "Own key", free: "Free" }[me.plan];
   const creditsNote = me.usage.credits > 0 ? ` + ${me.usage.credits} credits` : "";
   document.getElementById("usage-info").textContent = me.byok
-    ? "using your own API key"
-    : `${planName} · ${me.usage.analyses}/${me.usage.quota} this month${creditsNote}`;
+    ? `${planName} · your API key`
+    : me.plan === "byok"
+      ? `${planName} · add your API key`
+      : `${planName} · ${me.usage.analyses}/${me.usage.quota} this month${creditsNote}`;
   let statusLine;
   if (me.byok) {
-    statusLine = "✅ You're using your own Anthropic API key — no monthly limit applies.";
+    statusLine = "✅ Analyses bill to your own Anthropic account — we don't apply a monthly cap.";
+  } else if (me.plan === "byok") {
+    statusLine = "Your plan runs on your own Anthropic API key — add it below to start analyzing.";
   } else if (me.byok_stored && !me.byok_allowed) {
-    statusLine = `${planName} plan — your saved API key is inactive (Pro required). ${me.usage.analyses} of ${me.usage.quota} analyses used this month.`;
+    statusLine = `${planName} plan — your saved API key is inactive (subscription required). ${me.usage.analyses} of ${me.usage.quota} analyses used this month.`;
   } else {
     statusLine = `${planName} plan — ${me.usage.analyses} of ${me.usage.quota} analyses used this month${me.usage.credits > 0 ? `, plus ${me.usage.credits} purchased credits in reserve` : ""}.`;
   }
   document.getElementById("byok-status").textContent = statusLine;
   document.getElementById("byok-box").hidden = !(me.byok_allowed || me.byok_stored);
-  document.getElementById("byok-locked").hidden = !(me.byok_mode === "pro" && !me.byok_allowed && !me.byok_stored);
+  document.getElementById("byok-locked").hidden = !(me.byok_mode === "paid" && !me.byok_allowed && !me.byok_stored);
   document.getElementById("apikey-remove-btn").hidden = !me.byok_stored;
 
   const packBtn = document.getElementById("pack-btn");
-  packBtn.hidden = !(me.billing?.packs && !me.byok);
+  packBtn.hidden = !(me.billing?.packs && me.plan === "free" && !me.byok);
   packBtn.textContent = `🎟️ Buy ${me.billing?.pack_credits} analyses — ${me.billing?.pack_price}`;
   const upgradeBtn = document.getElementById("upgrade-btn");
-  upgradeBtn.hidden = !(me.billing?.enabled && me.plan !== "pro" && !me.byok);
-  upgradeBtn.textContent = `⭐ Upgrade to Pro — ${me.billing?.pro_quota} analyses/month, ${me.billing?.price}`;
-  document.getElementById("portal-btn").hidden = !(me.billing?.enabled && me.plan === "pro");
+  upgradeBtn.hidden = !(me.billing?.enabled && me.plan === "free");
+  upgradeBtn.textContent = `⭐ Pro — ${me.billing?.pro_quota} analyses/month, ${me.billing?.price}`;
+  const byokPlanBtn = document.getElementById("byokplan-btn");
+  byokPlanBtn.hidden = !(me.billing?.byok_plan && me.plan === "free");
+  byokPlanBtn.textContent = `🔑 Bring your own key — ${me.billing?.byok_plan_price} + your Anthropic usage, no cap`;
+  document.getElementById("portal-btn").hidden = !(me.billing?.enabled && me.plan !== "free");
 }
 
 async function refreshMe() {
@@ -139,6 +146,7 @@ async function billingRedirect(endpoint, payload) {
 
 document.getElementById("pack-btn").addEventListener("click", () => billingRedirect("/api/billing/checkout", { type: "pack" }));
 document.getElementById("upgrade-btn").addEventListener("click", () => billingRedirect("/api/billing/checkout", { type: "subscription" }));
+document.getElementById("byokplan-btn").addEventListener("click", () => billingRedirect("/api/billing/checkout", { type: "byok" }));
 document.getElementById("portal-btn").addEventListener("click", () => billingRedirect("/api/billing/portal"));
 
 // Returning from a successful Stripe checkout
@@ -150,7 +158,9 @@ if (purchased) {
   accountStatus.classList.remove("error");
   accountStatus.textContent = purchased === "pack"
     ? "🎉 Payment received — your analysis credits arrive within a few seconds."
-    : "🎉 Payment received — your Pro plan activates within a few seconds.";
+    : purchased === "byok"
+      ? "🎉 Payment received — add your Anthropic API key below to start analyzing."
+      : "🎉 Payment received — your Pro plan activates within a few seconds.";
   setTimeout(refreshMe, 3000);
 }
 

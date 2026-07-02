@@ -23,13 +23,15 @@ const PRO_MONTHLY_QUOTA = parseInt(process.env.PRO_MONTHLY_QUOTA || "30", 10);
 const PLAN_PRICE_DISPLAY = process.env.PLAN_PRICE_DISPLAY || "$15/month";
 const PACK_CREDITS = parseInt(process.env.PACK_CREDITS || "5", 10);
 const PACK_PRICE_DISPLAY = process.env.PACK_PRICE_DISPLAY || "$5";
+const BYOK_PLAN_PRICE_DISPLAY = process.env.BYOK_PLAN_PRICE_DISPLAY || "$9/month";
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 const BILLING_ENABLED = Boolean(stripe && process.env.STRIPE_PRICE_ID);
 const PACKS_ENABLED = Boolean(stripe && process.env.STRIPE_PACK_PRICE_ID);
-// Who may use their own Anthropic API key: "pro" (paying subscribers only — default),
-// "open" (anyone), or "off" (nobody). BYOK on "pro" is pure margin: they pay the
-// subscription AND their own API bill.
-const BYOK_MODE = (process.env.BYOK_MODE || "pro").toLowerCase();
+const BYOK_PLAN_ENABLED = Boolean(stripe && process.env.STRIPE_BYOK_PRICE_ID);
+// Who may use their own Anthropic API key: "paid" (default — Pro or BYOK-plan
+// subscribers), "open" (anyone), or "off" (nobody). The BYOK plan is a smaller
+// platform fee where the user covers their own API bill in exchange for no cap.
+const BYOK_MODE = (process.env.BYOK_MODE || "paid").toLowerCase();
 // USD per million tokens, for the cost estimates in usage records (Opus 4.8 pricing)
 const PRICE_PER_MTOK = { input: 5, output: 25 };
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
@@ -57,11 +59,11 @@ app.post("/api/billing/webhook", express.raw({ type: "application/json" }), (req
       const email = (s.client_reference_id || s.customer_details?.email || "").toLowerCase();
       if (!users[email]) break;
       if (s.mode === "subscription") {
-        users[email].plan = "pro";
+        users[email].plan = s.metadata?.plan_type === "byok" ? "byok" : "pro";
         users[email].stripeCustomerId = s.customer;
         users[email].stripeSubscriptionId = s.subscription;
         saveUsers(users);
-        console.log(`Billing: ${email} upgraded to pro.`);
+        console.log(`Billing: ${email} subscribed (${users[email].plan}).`);
       } else if (s.mode === "payment") {
         users[email].credits = (users[email].credits ?? 0) + PACK_CREDITS;
         saveUsers(users);
@@ -83,7 +85,11 @@ app.post("/api/billing/webhook", express.raw({ type: "application/json" }), (req
       const sub = event.data.object;
       const email = byCustomer(sub.customer);
       if (email) {
-        users[email].plan = ["canceled", "unpaid", "incomplete_expired"].includes(sub.status) ? "free" : "pro";
+        if (["canceled", "unpaid", "incomplete_expired"].includes(sub.status)) {
+          users[email].plan = "free";
+        } else if (users[email].plan === "free") {
+          users[email].plan = "pro"; // reactivation; plan_type refinement arrives via checkout events
+        }
         saveUsers(users);
       }
       break;
@@ -156,8 +162,8 @@ function decryptSecret(b64) {
 
 function byokAllowed(email) {
   if (BYOK_MODE === "open") return true;
-  if (BYOK_MODE === "pro") return planFor(email) === "pro";
-  return false;
+  if (BYOK_MODE === "off") return false;
+  return planFor(email) !== "free"; // "paid" (default): Pro or BYOK-plan subscribers
 }
 
 /** Returns {client, byok} — the caller's own-key client when they stored one AND their plan allows it. */
@@ -210,7 +216,8 @@ function quotaFor(email) {
 }
 
 function planFor(email) {
-  return loadUsers()[email]?.plan === "pro" ? "pro" : "free";
+  const plan = loadUsers()[email]?.plan;
+  return plan === "pro" || plan === "byok" ? plan : "free";
 }
 
 function creditsFor(email) {
@@ -289,28 +296,34 @@ app.get("/api/me", (req, res) => {
       packs: PACKS_ENABLED,
       pack_credits: PACK_CREDITS,
       pack_price: PACK_PRICE_DISPLAY,
+      byok_plan: BYOK_PLAN_ENABLED,
+      byok_plan_price: BYOK_PLAN_PRICE_DISPLAY,
     },
     usage: { month: monthKey(), analyses: usage.analyses, quota: quotaFor(email), credits: creditsFor(email) },
   });
 });
 
 app.post("/api/billing/checkout", requireAuth, async (req, res) => {
-  const type = req.body?.type === "pack" ? "pack" : "subscription";
-  if (type === "pack" ? !PACKS_ENABLED : !BILLING_ENABLED) {
+  const type = ["pack", "byok"].includes(req.body?.type) ? req.body.type : "subscription";
+  const enabled = { pack: PACKS_ENABLED, byok: BYOK_PLAN_ENABLED, subscription: BILLING_ENABLED }[type];
+  if (!enabled) {
     return res.status(503).json({ error: "Billing isn't configured on this server yet." });
   }
   const email = currentUser(req);
   if (email === "anonymous") return res.status(400).json({ error: "Sign in with an account to buy." });
   try {
+    const priceId = {
+      pack: process.env.STRIPE_PACK_PRICE_ID,
+      byok: process.env.STRIPE_BYOK_PRICE_ID,
+      subscription: process.env.STRIPE_PRICE_ID,
+    }[type];
     const appUrl = process.env.APP_URL || `${req.protocol}://${req.get("host")}`;
     const session = await stripe.checkout.sessions.create({
       mode: type === "pack" ? "payment" : "subscription",
-      line_items: [{
-        price: type === "pack" ? process.env.STRIPE_PACK_PRICE_ID : process.env.STRIPE_PRICE_ID,
-        quantity: 1,
-      }],
+      line_items: [{ price: priceId, quantity: 1 }],
       client_reference_id: email,
       customer_email: email,
+      metadata: { plan_type: type === "byok" ? "byok" : "pro" },
       success_url: `${appUrl}/?purchased=${type}`,
       cancel_url: `${appUrl}/`,
     });
@@ -343,8 +356,8 @@ app.post("/api/apikey", requireAuth, async (req, res) => {
   const email = currentUser(req);
   if (!byokAllowed(email)) {
     return res.status(403).json({
-      error: BYOK_MODE === "pro"
-        ? "Using your own API key is a Pro feature — upgrade to unlock it."
+      error: BYOK_MODE === "paid"
+        ? "Using your own API key requires a subscription — see the plans in Account settings."
         : "Using your own API key is disabled on this server.",
     });
   }
@@ -472,6 +485,11 @@ app.post("/api/diagnose", requireAuth, async (req, res) => {
     const { client: userClient, byok } = clientFor(email);
     let useCredit = false;
     if (!byok) {
+      if (planFor(email) === "byok") {
+        return res.status(403).json({
+          error: "Your plan runs on your own Anthropic API key — add it in Account settings to start analyzing.",
+        });
+      }
       const used = usageFor(email).analyses;
       const quota = quotaFor(email);
       if (used >= quota) {
@@ -481,7 +499,8 @@ app.post("/api/diagnose", requireAuth, async (req, res) => {
           const options = [];
           if (PACKS_ENABLED) options.push(`buy a ${PACK_CREDITS}-analysis pack (${PACK_PRICE_DISPLAY})`);
           if (BILLING_ENABLED && planFor(email) !== "pro") options.push(`upgrade to Pro (${PRO_MONTHLY_QUOTA}/month, ${PLAN_PRICE_DISPLAY})`);
-          if (byokAllowed(email)) options.push("add your own Anthropic API key for unlimited use");
+          if (BYOK_PLAN_ENABLED && planFor(email) === "free") options.push(`switch to the Bring-Your-Own-Key plan (${BYOK_PLAN_PRICE_DISPLAY} — no cap from us, usage bills to your Anthropic account)`);
+          if (byokAllowed(email)) options.push("add your own Anthropic API key (no monthly cap here — usage bills to your Anthropic account)");
           if (!options.length) options.push("wait until next month");
           return res.status(429).json({
             error: `Monthly limit reached (${used}/${quota} analyses). In Account settings you can ${options.join(", or ")}.`,

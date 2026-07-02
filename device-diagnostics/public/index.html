@@ -38,13 +38,14 @@
       <div id="billing-box">
         <button id="pack-btn" hidden>🎟️ Buy analyses</button>
         <button id="upgrade-btn" hidden>⭐ Upgrade to Pro</button>
+        <button id="byokplan-btn" class="secondary" hidden>🔑 Bring your own key</button>
         <button id="portal-btn" class="secondary" hidden>Manage subscription</button>
       </div>
-      <p id="byok-locked" class="hint-text" hidden>🔒 <strong>Pro perk:</strong> Pro subscribers can plug in their own Anthropic API key for unlimited analyses.</p>
+      <p id="byok-locked" class="hint-text" hidden>🔒 Subscribers can plug in their own Anthropic API key — no cap from us; usage bills to their own Anthropic account.</p>
       <div id="byok-box" hidden>
         <label for="apikey-input">Your Anthropic API key</label>
         <input type="password" id="apikey-input" placeholder="sk-ant-..." autocomplete="off" />
-        <p class="hint-text">With your own key, analyses run on your Anthropic account with no monthly limit here. The key is stored encrypted on the server and never shown again. Get one at platform.claude.com.</p>
+        <p class="hint-text">With your own key, analyses bill to your Anthropic account — we don't apply a monthly cap. The key is stored encrypted on the server and never shown again. Get one at platform.claude.com.</p>
         <button id="apikey-save-btn">Save key</button>
         <button id="apikey-remove-btn" class="secondary" hidden>Remove my key</button>
       </div>

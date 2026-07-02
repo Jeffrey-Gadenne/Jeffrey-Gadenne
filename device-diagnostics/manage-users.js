@@ -53,8 +53,8 @@ switch (cmd) {
   }
   case "plan": {
     const plan = password; // third arg doubles as the plan name
-    if (!email || !users[email] || !["free", "pro"].includes(plan)) {
-      console.error("Usage: node manage-users.js plan <email> <free|pro>");
+    if (!email || !users[email] || !["free", "pro", "byok"].includes(plan)) {
+      console.error("Usage: node manage-users.js plan <email> <free|pro|byok>");
       process.exit(1);
     }
     users[email].plan = plan;
@@ -88,7 +88,7 @@ switch (cmd) {
     const emails = Object.keys(users);
     console.log(
       emails.length
-        ? emails.map((e) => `${e} [${users[e].plan === "pro" ? "pro" : "free"}]${Number.isInteger(users[e].quota) ? ` (quota: ${users[e].quota})` : ""}${users[e].credits > 0 ? ` (${users[e].credits} credits)` : ""}${users[e].apiKeyEnc ? " [own API key]" : ""}`).join("\n")
+        ? emails.map((e) => `${e} [${["pro", "byok"].includes(users[e].plan) ? users[e].plan : "free"}]${Number.isInteger(users[e].quota) ? ` (quota: ${users[e].quota})` : ""}${users[e].credits > 0 ? ` (${users[e].credits} credits)` : ""}${users[e].apiKeyEnc ? " [own API key]" : ""}`).join("\n")
         : "No accounts yet."
     );
     break;
