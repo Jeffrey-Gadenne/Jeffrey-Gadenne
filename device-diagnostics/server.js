@@ -21,8 +21,11 @@ const ALLOW_SIGNUPS = process.env.ALLOW_SIGNUPS !== "false";
 const FREE_MONTHLY_QUOTA = parseInt(process.env.FREE_MONTHLY_QUOTA || "3", 10);
 const PRO_MONTHLY_QUOTA = parseInt(process.env.PRO_MONTHLY_QUOTA || "30", 10);
 const PLAN_PRICE_DISPLAY = process.env.PLAN_PRICE_DISPLAY || "$15/month";
+const PACK_CREDITS = parseInt(process.env.PACK_CREDITS || "5", 10);
+const PACK_PRICE_DISPLAY = process.env.PACK_PRICE_DISPLAY || "$5";
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 const BILLING_ENABLED = Boolean(stripe && process.env.STRIPE_PRICE_ID);
+const PACKS_ENABLED = Boolean(stripe && process.env.STRIPE_PACK_PRICE_ID);
 // USD per million tokens, for the cost estimates in usage records (Opus 4.8 pricing)
 const PRICE_PER_MTOK = { input: 5, output: 25 };
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
@@ -48,12 +51,17 @@ app.post("/api/billing/webhook", express.raw({ type: "application/json" }), (req
     case "checkout.session.completed": {
       const s = event.data.object;
       const email = (s.client_reference_id || s.customer_details?.email || "").toLowerCase();
-      if (users[email]) {
+      if (!users[email]) break;
+      if (s.mode === "subscription") {
         users[email].plan = "pro";
         users[email].stripeCustomerId = s.customer;
         users[email].stripeSubscriptionId = s.subscription;
         saveUsers(users);
         console.log(`Billing: ${email} upgraded to pro.`);
+      } else if (s.mode === "payment") {
+        users[email].credits = (users[email].credits ?? 0) + PACK_CREDITS;
+        saveUsers(users);
+        console.log(`Billing: ${email} bought a pack — now ${users[email].credits} credits.`);
       }
       break;
     }
@@ -195,6 +203,19 @@ function planFor(email) {
   return loadUsers()[email]?.plan === "pro" ? "pro" : "free";
 }
 
+function creditsFor(email) {
+  const credits = loadUsers()[email]?.credits;
+  return Number.isInteger(credits) && credits > 0 ? credits : 0;
+}
+
+function consumeCredit(email) {
+  const users = loadUsers();
+  if (users[email] && Number.isInteger(users[email].credits) && users[email].credits > 0) {
+    users[email].credits -= 1;
+    saveUsers(users);
+  }
+}
+
 app.post("/api/register", (req, res) => {
   if (!ALLOW_SIGNUPS) {
     return res.status(503).json({ error: "Sign-ups are closed — contact the site owner for an account." });
@@ -248,25 +269,36 @@ app.get("/api/me", (req, res) => {
     anonymous: email === "anonymous",
     byok,
     plan: planFor(email),
-    billing: { enabled: BILLING_ENABLED, price: PLAN_PRICE_DISPLAY, pro_quota: PRO_MONTHLY_QUOTA },
-    usage: { month: monthKey(), analyses: usage.analyses, quota: quotaFor(email) },
+    billing: {
+      enabled: BILLING_ENABLED,
+      price: PLAN_PRICE_DISPLAY,
+      pro_quota: PRO_MONTHLY_QUOTA,
+      packs: PACKS_ENABLED,
+      pack_credits: PACK_CREDITS,
+      pack_price: PACK_PRICE_DISPLAY,
+    },
+    usage: { month: monthKey(), analyses: usage.analyses, quota: quotaFor(email), credits: creditsFor(email) },
   });
 });
 
 app.post("/api/billing/checkout", requireAuth, async (req, res) => {
-  if (!BILLING_ENABLED) {
+  const type = req.body?.type === "pack" ? "pack" : "subscription";
+  if (type === "pack" ? !PACKS_ENABLED : !BILLING_ENABLED) {
     return res.status(503).json({ error: "Billing isn't configured on this server yet." });
   }
   const email = currentUser(req);
-  if (email === "anonymous") return res.status(400).json({ error: "Sign in with an account to subscribe." });
+  if (email === "anonymous") return res.status(400).json({ error: "Sign in with an account to buy." });
   try {
     const appUrl = process.env.APP_URL || `${req.protocol}://${req.get("host")}`;
     const session = await stripe.checkout.sessions.create({
-      mode: "subscription",
-      line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
+      mode: type === "pack" ? "payment" : "subscription",
+      line_items: [{
+        price: type === "pack" ? process.env.STRIPE_PACK_PRICE_ID : process.env.STRIPE_PRICE_ID,
+        quantity: 1,
+      }],
       client_reference_id: email,
       customer_email: email,
-      success_url: `${appUrl}/?upgraded=1`,
+      success_url: `${appUrl}/?purchased=${type}`,
       cancel_url: `${appUrl}/`,
     });
     res.json({ url: session.url });
@@ -418,17 +450,23 @@ app.post("/api/diagnose", requireAuth, async (req, res) => {
   try {
     const email = currentUser(req);
     const { client: userClient, byok } = clientFor(email);
+    let useCredit = false;
     if (!byok) {
       const used = usageFor(email).analyses;
       const quota = quotaFor(email);
       if (used >= quota) {
-        const upgradeHint = BILLING_ENABLED && planFor(email) !== "pro"
-          ? `Upgrade to Pro (${PRO_MONTHLY_QUOTA} analyses/month, ${PLAN_PRICE_DISPLAY}) in Account settings, or add`
-          : "Add";
-        return res.status(429).json({
-          error: `Monthly limit reached (${used}/${quota} analyses). ${upgradeHint} your own Anthropic API key for unlimited use.`,
-          quota_exceeded: true,
-        });
+        if (creditsFor(email) > 0) {
+          useCredit = true; // consumed only after a successful analysis
+        } else {
+          const options = [];
+          if (PACKS_ENABLED) options.push(`buy a ${PACK_CREDITS}-analysis pack (${PACK_PRICE_DISPLAY})`);
+          if (BILLING_ENABLED && planFor(email) !== "pro") options.push(`upgrade to Pro (${PRO_MONTHLY_QUOTA}/month, ${PLAN_PRICE_DISPLAY})`);
+          options.push("add your own Anthropic API key for unlimited use");
+          return res.status(429).json({
+            error: `Monthly limit reached (${used}/${quota} analyses). In Account settings you can ${options.join(", or ")}.`,
+            quota_exceeded: true,
+          });
+        }
       }
     }
 
@@ -477,6 +515,7 @@ app.post("/api/diagnose", requireAuth, async (req, res) => {
       return res.status(502).json({ error: "The model returned no analysis." });
     }
     recordUsage(email, "analysis", message.usage);
+    if (useCredit) consumeCredit(email);
     res.json({ analysis: JSON.parse(text) });
   } catch (err) {
     handleApiError(err, res);

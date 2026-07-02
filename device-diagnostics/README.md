@@ -42,24 +42,40 @@ Set `SESSION_SECRET` in `.env` so logins survive server restarts, and `NODE_ENV=
 
 Users can self-register in the app (disable with `ALLOW_SIGNUPS=false`). Every analysis and follow-up is metered per account (tokens + estimated cost, in a git-ignored `usage.json`). Three tiers:
 
-| Tier | Quota | Who pays for the API |
+| Tier | Allowance | Who pays for the API |
 |---|---|---|
 | **Free** | `FREE_MONTHLY_QUOTA` analyses/month (default 3) | You |
+| **Credit packs** (one-off purchase) | `PACK_CREDITS` analyses per pack (default 5), never expire, used after the monthly quota | You, covered by the purchase |
 | **Pro** (Stripe subscription) | `PRO_MONTHLY_QUOTA` analyses/month (default 30) | You, covered by the subscription |
 | **Bring-your-own-key** | Unlimited | The user (their key, encrypted at rest) |
 
-Per-user overrides: `node manage-users.js quota <email> <n>` and `node manage-users.js plan <email> <free|pro>`.
+Packs suit occasional users (fix one thing, buy once); the subscription suits trade users (repair shops, refurbishers, salvage) — price it accordingly. Per-user overrides: `node manage-users.js quota|plan|credits <email> <value>`.
 
-**Stripe setup:** create a recurring Price in the [Stripe dashboard](https://dashboard.stripe.com), add a webhook endpoint pointing at `https://<your-host>/api/billing/webhook` (events: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`), then set:
+**Stripe setup:** in the [Stripe dashboard](https://dashboard.stripe.com) create a Product with a **recurring** Price (subscription) and one with a **one-off** Price (pack), add a webhook endpoint pointing at `https://<your-host>/api/billing/webhook` (events: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`), then set:
 
 ```bash
 STRIPE_SECRET_KEY=sk_live_...
-STRIPE_PRICE_ID=price_...
+STRIPE_PRICE_ID=price_...          # recurring price → Pro subscription
+STRIPE_PACK_PRICE_ID=price_...     # one-off price → credit packs
 STRIPE_WEBHOOK_SECRET=whsec_...
-PLAN_PRICE_DISPLAY="A$15/month"   # what the upgrade button shows
+PLAN_PRICE_DISPLAY="A$29/month"
+PACK_PRICE_DISPLAY="A$7"
 ```
 
-Without these set, billing UI stays hidden and everything else works (free tier + BYOK).
+Each is optional — configure only the subscription, only packs, or neither (billing UI hides; free tier + BYOK still work).
+
+### Recommended launch configuration
+
+Margin-positive in every case, validated pricing to start from:
+
+```bash
+MODEL=claude-sonnet-5        # ~half the API cost of Opus, excellent at this task
+FREE_MONTHLY_QUOTA=3         # acquisition hook, worst case ~A$0.80/user/month
+PACK_CREDITS=5               # consumer tier: A$7 pack costs you ~A$1.50 in API
+PACK_PRICE_DISPLAY="A$7"
+PRO_MONTHLY_QUOTA=100        # trade tier: repair shops, refurbishers, salvage
+PLAN_PRICE_DISPLAY="A$29/month"   # capped-out worst case ~A$24 API — typical far less
+```
 
 `MODEL` is also configurable via env (default `claude-opus-4-8`) — e.g. `MODEL=claude-sonnet-5` for ~40–60% lower cost per analysis.
 

@@ -43,14 +43,18 @@ function showApp(me) {
   userBar.hidden = false;
   document.getElementById("user-email").textContent = me.user;
   const planName = me.plan === "pro" ? "Pro" : "Free";
+  const creditsNote = me.usage.credits > 0 ? ` + ${me.usage.credits} credits` : "";
   document.getElementById("usage-info").textContent = me.byok
     ? "using your own API key"
-    : `${planName} · ${me.usage.analyses}/${me.usage.quota} analyses this month`;
+    : `${planName} · ${me.usage.analyses}/${me.usage.quota} this month${creditsNote}`;
   document.getElementById("byok-status").textContent = me.byok
     ? "✅ You're using your own Anthropic API key — no monthly limit applies."
-    : `${planName} plan — ${me.usage.analyses} of ${me.usage.quota} analyses used this month.`;
+    : `${planName} plan — ${me.usage.analyses} of ${me.usage.quota} analyses used this month${me.usage.credits > 0 ? `, plus ${me.usage.credits} purchased credits in reserve` : ""}.`;
   document.getElementById("apikey-remove-btn").hidden = !me.byok;
 
+  const packBtn = document.getElementById("pack-btn");
+  packBtn.hidden = !(me.billing?.packs && !me.byok);
+  packBtn.textContent = `🎟️ Buy ${me.billing?.pack_credits} analyses — ${me.billing?.pack_price}`;
   const upgradeBtn = document.getElementById("upgrade-btn");
   upgradeBtn.hidden = !(me.billing?.enabled && me.plan !== "pro" && !me.byok);
   upgradeBtn.textContent = `⭐ Upgrade to Pro — ${me.billing?.pro_quota} analyses/month, ${me.billing?.price}`;
@@ -106,12 +110,16 @@ document.getElementById("apikey-remove-btn").addEventListener("click", async () 
   refreshMe();
 });
 
-async function billingRedirect(endpoint) {
+async function billingRedirect(endpoint, payload) {
   accountStatus.hidden = false;
   accountStatus.classList.remove("error");
   accountStatus.textContent = "Opening secure checkout…";
   try {
-    const res = await fetch(endpoint, { method: "POST" });
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload ?? {}),
+    });
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || "Billing is unavailable right now.");
     window.location.href = body.url;
@@ -121,16 +129,20 @@ async function billingRedirect(endpoint) {
   }
 }
 
-document.getElementById("upgrade-btn").addEventListener("click", () => billingRedirect("/api/billing/checkout"));
+document.getElementById("pack-btn").addEventListener("click", () => billingRedirect("/api/billing/checkout", { type: "pack" }));
+document.getElementById("upgrade-btn").addEventListener("click", () => billingRedirect("/api/billing/checkout", { type: "subscription" }));
 document.getElementById("portal-btn").addEventListener("click", () => billingRedirect("/api/billing/portal"));
 
 // Returning from a successful Stripe checkout
-if (new URLSearchParams(location.search).get("upgraded") === "1") {
+const purchased = new URLSearchParams(location.search).get("purchased");
+if (purchased) {
   history.replaceState(null, "", "/");
   accountSection.hidden = false;
   accountStatus.hidden = false;
   accountStatus.classList.remove("error");
-  accountStatus.textContent = "🎉 Payment received — your Pro plan activates within a few seconds. Refresh if the counter hasn't updated yet.";
+  accountStatus.textContent = purchased === "pack"
+    ? "🎉 Payment received — your analysis credits arrive within a few seconds."
+    : "🎉 Payment received — your Pro plan activates within a few seconds.";
   setTimeout(refreshMe, 3000);
 }
 

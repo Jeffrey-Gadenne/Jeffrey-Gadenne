@@ -62,6 +62,17 @@ switch (cmd) {
     console.log(`${email} set to the ${plan} plan.`);
     break;
   }
+  case "credits": {
+    const credits = parseInt(password, 10); // third arg doubles as the credit count
+    if (!email || !users[email] || !Number.isInteger(credits) || credits < 0) {
+      console.error("Usage: node manage-users.js credits <email> <count>");
+      process.exit(1);
+    }
+    users[email].credits = credits;
+    save(users);
+    console.log(`${email} now has ${credits} credits.`);
+    break;
+  }
   case "quota": {
     const quota = parseInt(password, 10); // third arg doubles as the quota number
     if (!email || !users[email] || !Number.isInteger(quota) || quota < 0) {
@@ -77,12 +88,12 @@ switch (cmd) {
     const emails = Object.keys(users);
     console.log(
       emails.length
-        ? emails.map((e) => `${e} [${users[e].plan === "pro" ? "pro" : "free"}]${Number.isInteger(users[e].quota) ? ` (quota: ${users[e].quota})` : ""}${users[e].apiKeyEnc ? " [own API key]" : ""}`).join("\n")
+        ? emails.map((e) => `${e} [${users[e].plan === "pro" ? "pro" : "free"}]${Number.isInteger(users[e].quota) ? ` (quota: ${users[e].quota})` : ""}${users[e].credits > 0 ? ` (${users[e].credits} credits)` : ""}${users[e].apiKeyEnc ? " [own API key]" : ""}`).join("\n")
         : "No accounts yet."
     );
     break;
   }
   default:
-    console.error("Usage: node manage-users.js <add|remove|plan|quota|list> [email] [password|plan|quota]");
+    console.error("Usage: node manage-users.js <add|remove|plan|quota|credits|list> [email] [password|plan|quota|credits]");
     process.exit(1);
 }
