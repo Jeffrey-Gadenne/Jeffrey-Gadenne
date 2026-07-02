@@ -47,10 +47,18 @@ function showApp(me) {
   document.getElementById("usage-info").textContent = me.byok
     ? "using your own API key"
     : `${planName} · ${me.usage.analyses}/${me.usage.quota} this month${creditsNote}`;
-  document.getElementById("byok-status").textContent = me.byok
-    ? "✅ You're using your own Anthropic API key — no monthly limit applies."
-    : `${planName} plan — ${me.usage.analyses} of ${me.usage.quota} analyses used this month${me.usage.credits > 0 ? `, plus ${me.usage.credits} purchased credits in reserve` : ""}.`;
-  document.getElementById("apikey-remove-btn").hidden = !me.byok;
+  let statusLine;
+  if (me.byok) {
+    statusLine = "✅ You're using your own Anthropic API key — no monthly limit applies.";
+  } else if (me.byok_stored && !me.byok_allowed) {
+    statusLine = `${planName} plan — your saved API key is inactive (Pro required). ${me.usage.analyses} of ${me.usage.quota} analyses used this month.`;
+  } else {
+    statusLine = `${planName} plan — ${me.usage.analyses} of ${me.usage.quota} analyses used this month${me.usage.credits > 0 ? `, plus ${me.usage.credits} purchased credits in reserve` : ""}.`;
+  }
+  document.getElementById("byok-status").textContent = statusLine;
+  document.getElementById("byok-box").hidden = !(me.byok_allowed || me.byok_stored);
+  document.getElementById("byok-locked").hidden = !(me.byok_mode === "pro" && !me.byok_allowed && !me.byok_stored);
+  document.getElementById("apikey-remove-btn").hidden = !me.byok_stored;
 
   const packBtn = document.getElementById("pack-btn");
   packBtn.hidden = !(me.billing?.packs && !me.byok);

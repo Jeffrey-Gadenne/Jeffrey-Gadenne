@@ -26,6 +26,10 @@ const PACK_PRICE_DISPLAY = process.env.PACK_PRICE_DISPLAY || "$5";
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 const BILLING_ENABLED = Boolean(stripe && process.env.STRIPE_PRICE_ID);
 const PACKS_ENABLED = Boolean(stripe && process.env.STRIPE_PACK_PRICE_ID);
+// Who may use their own Anthropic API key: "pro" (paying subscribers only — default),
+// "open" (anyone), or "off" (nobody). BYOK on "pro" is pure margin: they pay the
+// subscription AND their own API bill.
+const BYOK_MODE = (process.env.BYOK_MODE || "pro").toLowerCase();
 // USD per million tokens, for the cost estimates in usage records (Opus 4.8 pricing)
 const PRICE_PER_MTOK = { input: 5, output: 25 };
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
@@ -150,10 +154,16 @@ function decryptSecret(b64) {
   }
 }
 
-/** Returns {client, byok} — the caller's own-key client when they stored one, else the app's. */
+function byokAllowed(email) {
+  if (BYOK_MODE === "open") return true;
+  if (BYOK_MODE === "pro") return planFor(email) === "pro";
+  return false;
+}
+
+/** Returns {client, byok} — the caller's own-key client when they stored one AND their plan allows it. */
 function clientFor(email) {
   const record = loadUsers()[email];
-  if (record?.apiKeyEnc) {
+  if (record?.apiKeyEnc && byokAllowed(email)) {
     const key = decryptSecret(record.apiKeyEnc);
     if (key) return { client: new Anthropic({ apiKey: key }), byok: true };
   }
@@ -268,6 +278,9 @@ app.get("/api/me", (req, res) => {
     user: email,
     anonymous: email === "anonymous",
     byok,
+    byok_allowed: byokAllowed(email),
+    byok_stored: Boolean(loadUsers()[email]?.apiKeyEnc),
+    byok_mode: BYOK_MODE,
     plan: planFor(email),
     billing: {
       enabled: BILLING_ENABLED,
@@ -328,6 +341,13 @@ app.post("/api/billing/portal", requireAuth, async (req, res) => {
 
 app.post("/api/apikey", requireAuth, async (req, res) => {
   const email = currentUser(req);
+  if (!byokAllowed(email)) {
+    return res.status(403).json({
+      error: BYOK_MODE === "pro"
+        ? "Using your own API key is a Pro feature — upgrade to unlock it."
+        : "Using your own API key is disabled on this server.",
+    });
+  }
   const apiKey = String(req.body?.apiKey ?? "").trim();
   if (!apiKey.startsWith("sk-ant-")) {
     return res.status(400).json({ error: "That doesn't look like an Anthropic API key (should start with sk-ant-)." });
@@ -461,7 +481,8 @@ app.post("/api/diagnose", requireAuth, async (req, res) => {
           const options = [];
           if (PACKS_ENABLED) options.push(`buy a ${PACK_CREDITS}-analysis pack (${PACK_PRICE_DISPLAY})`);
           if (BILLING_ENABLED && planFor(email) !== "pro") options.push(`upgrade to Pro (${PRO_MONTHLY_QUOTA}/month, ${PLAN_PRICE_DISPLAY})`);
-          options.push("add your own Anthropic API key for unlimited use");
+          if (byokAllowed(email)) options.push("add your own Anthropic API key for unlimited use");
+          if (!options.length) options.push("wait until next month");
           return res.status(429).json({
             error: `Monthly limit reached (${used}/${quota} analyses). In Account settings you can ${options.join(", or ")}.`,
             quota_exceeded: true,

@@ -47,9 +47,11 @@ Users can self-register in the app (disable with `ALLOW_SIGNUPS=false`). Every a
 | **Free** | `FREE_MONTHLY_QUOTA` analyses/month (default 3) | You |
 | **Credit packs** (one-off purchase) | `PACK_CREDITS` analyses per pack (default 5), never expire, used after the monthly quota | You, covered by the purchase |
 | **Pro** (Stripe subscription) | `PRO_MONTHLY_QUOTA` analyses/month (default 30) | You, covered by the subscription |
-| **Bring-your-own-key** | Unlimited | The user (their key, encrypted at rest) |
+| **Pro + own key** | Unlimited | The user (their key, encrypted at rest) — they still pay the subscription |
 
 Packs suit occasional users (fix one thing, buy once); the subscription suits trade users (repair shops, refurbishers, salvage) — price it accordingly. Per-user overrides: `node manage-users.js quota|plan|credits <email> <value>`.
+
+**Bring-your-own-key is a Pro perk by default** (`BYOK_MODE=pro`), so it adds revenue instead of bypassing it: heavy users pay the subscription *and* their own API bill — your highest-margin tier. Set `BYOK_MODE=open` to let anyone use their own key (useful pre-launch for testers), or `BYOK_MODE=off` to disable it entirely. A key saved while on Pro simply goes inactive if the subscription lapses.
 
 **Stripe setup:** in the [Stripe dashboard](https://dashboard.stripe.com) create a Product with a **recurring** Price (subscription) and one with a **one-off** Price (pack), add a webhook endpoint pointing at `https://<your-host>/api/billing/webhook` (events: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`), then set:
 

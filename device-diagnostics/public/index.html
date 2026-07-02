@@ -40,11 +40,14 @@
         <button id="upgrade-btn" hidden>⭐ Upgrade to Pro</button>
         <button id="portal-btn" class="secondary" hidden>Manage subscription</button>
       </div>
-      <label for="apikey-input">Your Anthropic API key</label>
-      <input type="password" id="apikey-input" placeholder="sk-ant-..." autocomplete="off" />
-      <p class="hint-text">With your own key, analyses run on your Anthropic account and don't count against the monthly limit here. The key is stored encrypted on the server and never shown again. Get one at platform.claude.com.</p>
-      <button id="apikey-save-btn">Save key</button>
-      <button id="apikey-remove-btn" class="secondary" hidden>Remove my key</button>
+      <p id="byok-locked" class="hint-text" hidden>🔒 <strong>Pro perk:</strong> Pro subscribers can plug in their own Anthropic API key for unlimited analyses.</p>
+      <div id="byok-box" hidden>
+        <label for="apikey-input">Your Anthropic API key</label>
+        <input type="password" id="apikey-input" placeholder="sk-ant-..." autocomplete="off" />
+        <p class="hint-text">With your own key, analyses run on your Anthropic account with no monthly limit here. The key is stored encrypted on the server and never shown again. Get one at platform.claude.com.</p>
+        <button id="apikey-save-btn">Save key</button>
+        <button id="apikey-remove-btn" class="secondary" hidden>Remove my key</button>
+      </div>
       <div id="account-status" hidden></div>
     </section>
 
