@@ -68,6 +68,59 @@ Notes:
    ```
    Point a DNS A record at the VM, open ports 80/443 in the Azure Network Security Group, and you're done.
 
+## Option C — On the Azure server that already hosts your websites
+
+The app is one Node process listening on a port (default 3000), so co-hosting means: run it as a service, then have your existing web server forward a subdomain (e.g. `diagnostics.yourdomain.com`) to it. Add a DNS A record for the subdomain pointing at the same server IP first — your existing sites are untouched.
+
+### Windows VM with IIS
+
+1. Install [Node.js 22 LTS](https://nodejs.org) on the server, copy the `device-diagnostics` folder somewhere like `C:\apps\device-diagnostics`, then in PowerShell:
+   ```powershell
+   cd C:\apps\device-diagnostics
+   npm install --omit=dev
+   copy .env.example .env    # edit: API key, SESSION_SECRET, NODE_ENV=production
+   node manage-users.js add you@example.com yourpassword
+   ```
+2. Run it as a Windows service with [NSSM](https://nssm.cc) (survives reboots):
+   ```powershell
+   nssm install DeviceDiagnostics "C:\Program Files\nodejs\node.exe" "--env-file=.env server.js"
+   nssm set DeviceDiagnostics AppDirectory C:\apps\device-diagnostics
+   nssm start DeviceDiagnostics
+   ```
+3. In IIS, install the **URL Rewrite** and **Application Request Routing (ARR)** modules (via the Web Platform components or Microsoft downloads), enable ARR's proxy mode (server node → Application Request Routing Cache → Server Proxy Settings → Enable proxy), then add a new IIS site bound to `diagnostics.yourdomain.com` with a single rewrite rule proxying `(.*)` to `http://localhost:3000/{R:1}`.
+4. HTTPS: use [win-acme](https://www.win-acme.com) for a free auto-renewing Let's Encrypt certificate on the new binding.
+
+### Linux VM (nginx)
+
+```bash
+cd /var/www && git clone <repo> && cd Jeffrey-Gadenne/device-diagnostics
+npm install --omit=dev
+cp .env.example .env      # edit: API key, SESSION_SECRET, NODE_ENV=production
+node manage-users.js add you@example.com yourpassword
+sudo npm i -g pm2 && pm2 start "npm start" --name diagnostics && pm2 save && pm2 startup
+```
+
+nginx server block (then `certbot --nginx -d diagnostics.yourdomain.com` for HTTPS):
+
+```nginx
+server {
+    server_name diagnostics.yourdomain.com;
+    client_max_body_size 60m;   # image uploads
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;   # analyses can take 1-2 minutes
+    }
+}
+```
+
+(If the VM runs Caddy instead, the Option B Caddyfile works as-is.)
+
+### Either VM type
+
+Open nothing new in the Azure Network Security Group — traffic arrives via the existing 80/443. Just make sure the reverse proxy timeout is ≥300s (analyses run 1–2 minutes) and the upload size limit is ≥60 MB.
+
 ## Installing it as a phone app
 
 Once hosted over HTTPS, open the URL on your phone:
