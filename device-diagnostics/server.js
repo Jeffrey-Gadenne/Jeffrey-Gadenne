@@ -128,12 +128,46 @@ function saveUsers(users) {
 }
 
 function requireAuth(req, res, next) {
-  if (ALLOW_ANONYMOUS || req.session?.user) return next();
+  if (currentUser(req)) return next();
   res.status(401).json({ error: "Not signed in." });
 }
 
+// ---------- Bearer tokens (mobile clients) ----------
+// Browser clients use the session cookie; native apps send
+// "Authorization: Bearer <token>" from /api/login or /api/register instead.
+
+function tokenSigningKey() {
+  return crypto.createHash("sha256").update("token:" + SESSION_SECRET).digest();
+}
+
+function signToken(email) {
+  const payload = `${email}|${Date.now() + 30 * 24 * 60 * 60 * 1000}`; // 30 days
+  const sig = crypto.createHmac("sha256", tokenSigningKey()).update(payload).digest("base64url");
+  return Buffer.from(payload).toString("base64url") + "." + sig;
+}
+
+function verifyToken(token) {
+  try {
+    const [encoded, sig] = String(token).split(".");
+    const payload = Buffer.from(encoded, "base64url").toString();
+    const expected = crypto.createHmac("sha256", tokenSigningKey()).update(payload).digest("base64url");
+    if (sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
+    const [email, expiry] = payload.split("|");
+    if (Date.now() > Number(expiry)) return null;
+    return email;
+  } catch {
+    return null;
+  }
+}
+
 function currentUser(req) {
-  return ALLOW_ANONYMOUS && !req.session?.user ? "anonymous" : req.session?.user;
+  if (req.session?.user) return req.session.user;
+  const auth = req.headers.authorization;
+  if (auth?.startsWith("Bearer ")) {
+    const email = verifyToken(auth.slice(7));
+    if (email && loadUsers()[email]) return email;
+  }
+  return ALLOW_ANONYMOUS ? "anonymous" : undefined;
 }
 
 // ---------- Bring-your-own-API-key (encrypted at rest) ----------
@@ -252,7 +286,7 @@ app.post("/api/register", (req, res) => {
   users[email] = { passwordHash: bcrypt.hashSync(password, 10), createdAt: new Date().toISOString(), plan: "free" };
   saveUsers(users);
   req.session.user = email;
-  res.json({ user: email });
+  res.json({ user: email, token: signToken(email) });
 });
 
 app.post("/api/login", (req, res) => {
@@ -268,7 +302,7 @@ app.post("/api/login", (req, res) => {
     return res.status(401).json({ error: "Wrong email or password." });
   }
   req.session.user = String(email).trim().toLowerCase();
-  res.json({ user: req.session.user });
+  res.json({ user: req.session.user, token: signToken(req.session.user) });
 });
 
 app.post("/api/logout", (req, res) => {
