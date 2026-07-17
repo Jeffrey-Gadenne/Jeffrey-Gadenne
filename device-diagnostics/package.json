@@ -1,0 +1,20 @@
+{
+  "name": "device-diagnostics",
+  "version": "1.0.0",
+  "description": "AI-powered device diagnostics and donor-parts identification from photos and video",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.109.1",
+    "bcryptjs": "^3.0.3",
+    "cookie-session": "^2.1.1",
+    "express": "^5.2.1",
+    "stripe": "^22.3.0"
+  }
+}

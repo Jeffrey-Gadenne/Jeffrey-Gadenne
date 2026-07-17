@@ -1,0 +1,10 @@
+{
+  "appId": "com.dacr.devicediagnostics",
+  "appName": "Device Diagnostics",
+  "webDir": "www",
+  "server": {
+    "url": "https://YOUR-APP.azurewebsites.net",
+    "cleartext": false
+  },
+  "backgroundColor": "#10141a"
+}

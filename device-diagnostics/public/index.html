@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Device Diagnostics &amp; Donor Parts</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔧</text></svg>" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <meta name="theme-color" content="#10141a" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>🔧 Device Diagnostics &amp; Donor Parts</h1>
+    <p>Upload photos or a short video of any device. Get an AI diagnosis of what's wrong and a list of components worth salvaging.</p>
+    <p id="user-bar" hidden><span id="user-email"></span> · <span id="usage-info"></span> · <a href="#" id="account-link">Account</a> · <a href="#" id="logout-link">Sign out</a></p>
+  </header>
+
+  <main>
+    <section id="login-section" class="card" hidden>
+      <h2>🔐 Sign in</h2>
+      <label for="login-email">Email</label>
+      <input type="email" id="login-email" autocomplete="username" />
+      <label for="login-password">Password</label>
+      <input type="password" id="login-password" autocomplete="current-password" />
+      <button id="login-btn">Sign in</button>
+      <button id="register-btn" class="secondary">Create account</button>
+      <p class="hint-text">New accounts start on the free plan. Upgrade any time, or use your own Anthropic API key.</p>
+      <div id="login-status" hidden></div>
+    </section>
+
+    <section id="account-section" class="card" hidden>
+      <h2>⚙️ Account</h2>
+      <p id="byok-status"></p>
+      <div id="billing-box">
+        <button id="pack-btn" hidden>🎟️ Buy analyses</button>
+        <button id="upgrade-btn" hidden>⭐ Upgrade to Pro</button>
+        <button id="byokplan-btn" class="secondary" hidden>🔑 Bring your own key</button>
+        <button id="portal-btn" class="secondary" hidden>Manage subscription</button>
+      </div>
+      <p id="byok-locked" class="hint-text" hidden>🔒 Subscribers can plug in their own Anthropic API key — no cap from us; usage bills to their own Anthropic account.</p>
+      <div id="byok-box" hidden>
+        <label for="apikey-input">Your Anthropic API key</label>
+        <input type="password" id="apikey-input" placeholder="sk-ant-..." autocomplete="off" />
+        <p class="hint-text">With your own key, analyses bill to your Anthropic account — we don't apply a monthly cap. The key is stored encrypted on the server and never shown again. Get one at platform.claude.com.</p>
+        <button id="apikey-save-btn">Save key</button>
+        <button id="apikey-remove-btn" class="secondary" hidden>Remove my key</button>
+      </div>
+      <div id="account-status" hidden></div>
+    </section>
+
+    <section id="upload-section" class="card" hidden>
+      <div id="dropzone" tabindex="0">
+        <input type="file" id="file-input" accept="image/*,video/*" multiple hidden />
+        <input type="file" id="camera-input" accept="image/*" capture="environment" hidden />
+        <p><strong>Drop photos or video here</strong> or click to browse</p>
+        <p class="hint">Videos are sampled into frames in your browser — nothing is uploaded until you analyze. Up to 12 images total.</p>
+      </div>
+      <button id="camera-btn" class="secondary" type="button">📸 Take a photo</button>
+      <div id="previews"></div>
+      <label for="notes">Describe the problem (optional but helps a lot)</label>
+      <textarea id="notes" rows="3"
+        placeholder="e.g. Washing machine drum won't spin, makes a clicking noise, tripped the breaker twice last week..."></textarea>
+      <button id="analyze-btn" disabled>Analyze device</button>
+      <div id="status" hidden></div>
+    </section>
+
+    <section id="results" hidden>
+      <div class="card" id="device-card"></div>
+      <div class="card">
+        <h2>🩺 Diagnosis</h2>
+        <div id="diagnosis-list"></div>
+      </div>
+      <div class="card">
+        <h2>♻️ Donor parts worth salvaging</h2>
+        <div id="parts-list"></div>
+      </div>
+      <div class="card" id="safety-card" hidden>
+        <h2>⚠️ Safety warnings</h2>
+        <ul id="safety-list"></ul>
+      </div>
+      <div class="card" id="quality-card" hidden>
+        <h2>📷 Image quality notes</h2>
+        <p id="quality-notes"></p>
+      </div>
+      <div class="card" id="followup-card">
+        <h2>💬 Ask a follow-up</h2>
+        <div id="chat-log"></div>
+        <div class="chat-input">
+          <input type="text" id="followup-input" placeholder="e.g. How do I test whether the motor is actually dead?" />
+          <button id="followup-btn">Ask</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>Diagnoses are AI-generated from your images and notes — always verify before working on mains-powered or pressurized equipment.</p>
+  </footer>
+
+  <script src="app.js"></script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("sw.js");
+    }
+  </script>
+</body>
+</html>
